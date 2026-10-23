@@ -7,3 +7,13 @@ coverage/
 # 内部发布笔记（不公开）
 PUBLISH.md
 publish/
+
+# 由 DSH 上传流程补充
+Thumbs.db
+desktop.ini
+__pycache__/
+*.pyc
+.venv/
+.env
+.env.local
+.env.*.local
