@@ -1,0 +1,15 @@
+# dsh-refresh-restart — bundle patch
+#
+# 一行 insert：本包既是 bundle 也是插件模块，所以 name 就是包名，id 是短标签
+# （其它 patch 行引用它时用这个名字）。config 里的每个键都对应 index.js 的
+# `export const Config`，可以在这里改，不必动代码。
+- insert:
+    - id: refresh-restart
+      name: dsh-refresh-restart
+      config:
+        # 「重启」后等待应用自己退出的最长时间（毫秒），超过就强制结束。
+        quitTimeoutMs: 20000
+        # 确认退出后，隔多久重新打开应用（毫秒）。
+        openDelayMs: 800
+        # 应用位置；留空表示自动识别当前运行的 .app。
+        appPath: ''

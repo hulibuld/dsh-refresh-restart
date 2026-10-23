@@ -1,0 +1,67 @@
+{
+  "name": "dsh-refresh-restart",
+  "version": "0.2.0",
+  "type": "module",
+  "description": "在 DeepSeek Harness 界面左上角（收起侧边栏按钮旁边）提供「刷新」「重启」两个快捷按钮。",
+  "keywords": [
+    "deepseek-harness",
+    "dsh-plugin",
+    "plugin",
+    "reload",
+    "restart",
+    "electron"
+  ],
+  "scripts": {
+    "test": "node --test test/"
+  },
+  "license": "MIT",
+  "main": "index.js",
+  "icon": "./icon.svg",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "lib",
+    "icon.svg",
+    "cordis.patch.yml",
+    "README.md",
+    "INSTALL.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-renderer"
+      ]
+    },
+    "engines": {
+      "dsh": ">=0.2.0-rc.1"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/schemastery": "^3.18.2"
+  },
+  "author": {
+    "name": "Yuzhou"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hulibuld/dsh-refresh-restart.git"
+  },
+  "homepage": "https://github.com/hulibuld/dsh-refresh-restart#readme",
+  "bugs": {
+    "url": "https://github.com/hulibuld/dsh-refresh-restart/issues"
+  }
+}
