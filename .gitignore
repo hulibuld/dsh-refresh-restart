@@ -3,3 +3,7 @@ node_modules/
 .DS_Store
 coverage/
 *.tgz
+
+# 内部发布笔记（不公开）
+PUBLISH.md
+publish/

@@ -1,7 +1,0 @@
-url: https://github.com/hulibuld/dsh-refresh-restart
-name: hulibuld/dsh-refresh-restart
-category: ui
-description:
-  en: 'Adds reload and restart buttons beside the sidebar toggle at the top-left of the DSH desktop app. Reload refreshes only the UI layer without interrupting the turn still generating; restart quits the whole app and reopens it, behind a second-click confirmation and a per-boot token other local processes cannot forge. Reuses the existing tests-and-CI badge.'
-  zh: '在 DSH 桌面版左上角「收起侧边栏」按钮旁加两个按钮：刷新只重载界面，不打断正在生成的回答；重启会把整个应用退出再自动打开，需要二次确认，且重启请求必须携带宿主每次启动随机生成的一次性 token。'
-tarball: https://github.com/hulibuld/dsh-refresh-restart/releases/download/v0.2.0/dsh-refresh-restart-0.2.0.tgz

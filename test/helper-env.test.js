@@ -77,12 +77,17 @@ test('端到端：助手拉起的子进程拿不到 ELECTRON_RUN_AS_NODE', () =>
 
   // 助手确认进程起来后就退出了，stub 还在写文件，所以要等它一下
   const deadline = Date.now() + 5000
-  while (!existsSync(out) && Date.now() < deadline) {
+  // 文件是先创建后写入，所以不能只看存在：一直读到内容齐了为止，避免读到空文件
+  let dumped = ''
+  while (Date.now() < deadline) {
+    if (existsSync(out)) {
+      dumped = readFileSync(out, 'utf8')
+      if (/^PATH=/m.test(dumped)) break
+    }
     spawnSync('sleep', ['0.05'])
   }
 
-  assert.ok(existsSync(out), '子进程没有把环境写出来')
-  const dumped = readFileSync(out, 'utf8')
+  assert.ok(dumped !== '', '子进程没有把环境写出来')
   assert.doesNotMatch(dumped, /^ELECTRON_RUN_AS_NODE=/m, 'ELECTRON_RUN_AS_NODE 漏进了新应用')
   assert.doesNotMatch(dumped, /^ELECTRON_ENABLE_LOGGING=/m, 'ELECTRON_* 前缀没被全部摘掉')
   assert.match(dumped, /^PATH=/m, 'PATH 这类必要变量不该被删')
