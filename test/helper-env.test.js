@@ -43,7 +43,11 @@ test('助手源码里有环境清洗、进程校验与 bundle id 兜底', () => 
   assert.match(source, /应用已重新打开/)
 })
 
-test('端到端：助手拉起的子进程拿不到 ELECTRON_RUN_AS_NODE', () => {
+// Windows 的 runner 没有 /bin/sh，写不出这个替身脚本；环境清洗逻辑本身在
+// 上面两条（relaunchEnv + 助手源码）已经覆盖，端到端只在类 Unix 上跑。
+const windowsSkip = process.platform === 'win32' ? 'Windows 没有 /bin/sh 替身脚本' : false
+
+test('端到端：助手拉起的子进程拿不到 ELECTRON_RUN_AS_NODE', { skip: windowsSkip }, () => {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-refresh-restart-env-'))
   const out = join(dir, 'env.txt')
   const stub = join(dir, 'stub-app.sh')
