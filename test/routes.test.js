@@ -146,12 +146,16 @@ test('服务层 unsupported → 501，busy → 409', async () => {
 
 test('注销函数可重复调用，底层只释放一次', () => {
   const { disposals, registered } = makeHost(baseService())
-  assert.equal(registered.length, 2)
+  assert.equal(registered.length, 3)
   for (const release of registered) {
     release()
     release()
   }
-  assert.deepEqual(disposals.sort(), ['/plugins/dsh-refresh-restart/restart', '/plugins/dsh-refresh-restart/status'])
+  assert.deepEqual(disposals.sort(), [
+    '/plugins/dsh-refresh-restart/restart',
+    '/plugins/dsh-refresh-restart/state',
+    '/plugins/dsh-refresh-restart/status',
+  ])
 })
 
 test('宿主没有 webServer 时安静返回空数组', () => {

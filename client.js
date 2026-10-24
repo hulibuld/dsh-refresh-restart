@@ -40,6 +40,7 @@ window.__ModuleLoader__.load({
       restartTitle: '重启 DeepSeek Harness',
       confirmTitle: '重启 DeepSeek Harness？',
       confirmBody: '界面会先关闭，几秒后自动重新打开。没发送出去的输入会丢失。',
+      confirmHint: '如果 DSH 弹出「关闭应用会中断当前正在进行的任务」，点「取消」就只是取消这次重启，不会关掉应用。',
       restarting: '正在重启…窗口马上会关闭。',
       cancel: '取消',
       confirm: '重启',
@@ -51,6 +52,13 @@ window.__ModuleLoader__.load({
       unsupported: '当前启动方式不支持一键重启：浏览器 / 命令行模式请手动重启桌面应用',
       busy: '正在重启中，请稍等',
       disposed: '插件已被卸载',
+    }
+
+    /** 重启取消 / 失败时给人看的提示（按助手写的进度挑一句）。 */
+    var STATE_TEXT = {
+      cancelled: '已取消重启：应用没有关闭，一切照常',
+      'quit-failed': '退出请求被系统拒绝，本次没有重启',
+      'launch-failed': '应用已关闭，但没能自动重新打开，请手动启动',
     }
 
     /* ------------------------------------------------------------------ *
@@ -249,6 +257,8 @@ window.__ModuleLoader__.load({
 
       // 自己的容器：量位置时要先把它藏起来，否则 elementFromPoint 命中的永远是它自己。
       var ownRef = useRef(null)
+      // 卸载后停掉状态轮询，避免对已经消失的组件 setState
+      var unmountRef = useRef({ current: false })
 
       // 量「收起侧边栏」按钮的位置。渲染路径上不允许抛错，整段包在 try 里。
       useEffect(function () {
@@ -366,6 +376,13 @@ window.__ModuleLoader__.load({
         }
       }, [])
 
+      // 卸载时停掉状态轮询（组件被换掉的情况下不该再 setState）
+      useEffect(function () {
+        return function () {
+          if (unmountRef.current) unmountRef.current.current = false
+        }
+      }, [])
+
       // 确认框打开时：点外面或按 Esc 关掉。
       useEffect(function () {
         if (!open) return undefined
@@ -398,6 +415,69 @@ window.__ModuleLoader__.load({
         } catch (ignored) {
           // 刷新失败什么也不用做，页面还在
         }
+      }
+
+      // 点完重启之后盯进度：助手写 phase，界面据此把「正在重启」收尾。
+      // 超时就当没结果处理，绝不让按钮永远转圈。
+      function watchState() {
+        var startedAt = Date.now()
+        var misses = 0
+        var mounted = { current: true }
+        unmountRef.current = mounted
+
+        function finish(text) {
+          mounted.current = false
+          if (text) {
+            setBusy(false)
+            setError(text)
+          }
+        }
+
+        function tick() {
+          if (!mounted.current) return
+          if (Date.now() - startedAt > 60000) {
+            finish('等不到重启结果，请刷新页面看看应用还在不在')
+            return
+          }
+          fetch(ROUTE + '/state', { headers: { accept: 'application/json' } })
+            .then(function (response) {
+              if (!response.ok) throw new Error('state ' + response.status)
+              return response.json()
+            })
+            .then(function (body) {
+              if (!mounted.current) return
+              misses = 0
+              var state = body && body.state ? body.state : null
+              var phase = state && typeof state.phase === 'string' ? state.phase : 'idle'
+              if (phase === 'cancelled' || phase === 'quit-failed') {
+                finish(STATE_TEXT[phase] || '重启已取消')
+                return
+              }
+              if (phase === 'launch-failed') {
+                finish(STATE_TEXT[phase])
+                return
+              }
+              if (phase === 'relaunched') {
+                // 页面马上就要被新窗口顶掉，保持 busy 即可
+                mounted.current = false
+                return
+              }
+              window.setTimeout(tick, 700)
+            })
+            .catch(function () {
+              // 宿主正在退出时请求会失败，这是正常的，继续等。
+              // 但连续失败太多次说明这个宿主还没有 /state 路由（旧版本），
+              // 那就别再打扰它，按老样子「窗口马上会关」处理。
+              misses += 1
+              if (misses >= 4) {
+                mounted.current = false
+                return
+              }
+              if (mounted.current) window.setTimeout(tick, 700)
+            })
+        }
+
+        window.setTimeout(tick, 800)
       }
 
       function doRestart() {
@@ -436,7 +516,10 @@ window.__ModuleLoader__.load({
               if (!text) text = '重启请求被拒绝（HTTP ' + result.response.status + '）'
               throw new Error(text)
             }
-            // 助手已启动，窗口马上会消失 —— 保持 busy，不再改状态。
+            // 助手接单了。但「接单」不等于「关掉了」：DSH 自己会弹
+            // 「关闭应用会中断当前正在进行的任务」，用户可能点取消。
+            // 所以接下来轮询助手写的进度，取消就把按钮松开、给一句人话。
+            watchState()
           })
           .catch(function (failure) {
             setBusy(false)
@@ -485,6 +568,11 @@ window.__ModuleLoader__.load({
                 { style: POPOVER_STYLE, role: 'dialog', 'aria-label': TEXT.confirmTitle, 'data-dsh-refresh-restart-popover': 'true' },
                 h('div', { style: { fontWeight: 600, marginBottom: 4, color: 'var(--dsw-alias-label-primary)' } }, TEXT.confirmTitle),
                 h('div', { style: { color: 'var(--dsw-alias-label-secondary)', marginBottom: 10 } }, TEXT.confirmBody),
+                h(
+                  'div',
+                  { style: { color: 'var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary))', fontSize: 11, marginBottom: 10 } },
+                  TEXT.confirmHint,
+                ),
                 busy
                   ? h('div', { style: { color: 'var(--dsw-alias-label-secondary)', marginBottom: 10 } }, TEXT.restarting)
                   : null,

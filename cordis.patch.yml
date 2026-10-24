@@ -7,9 +7,11 @@
     - id: refresh-restart
       name: dsh-refresh-restart
       config:
-        # 「重启」后等待应用自己退出的最长时间（毫秒），超过就强制结束。
+        # 「重启」后等待应用自己退出的最长时间（毫秒）。超时就当我这次重启作废。
         quitTimeoutMs: 20000
         # 确认退出后，隔多久重新打开应用（毫秒）。
         openDelayMs: 800
         # 应用位置；留空表示自动识别当前运行的 .app。
         appPath: ''
+        # 超时后是否强杀。默认 false：用户在 DSH 的关闭提示里点「取消」就放弃本次重启。
+        forceKill: false

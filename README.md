@@ -64,6 +64,7 @@ cd dsh-refresh-restart
 
 - **刷新**（↻）：等于按一次 `⌘R`。只重新加载界面那一层，宿主里的生成任务照常跑，**正在生成的回答不会中断**；插件改动能立刻生效。会丢的是输入框里还没发送的草稿、滚动位置。
 - **重启**（⏻）：弹确认框 → 窗口关闭 → 几秒后自动重新打开。会话、工作区都在，等同于菜单里的「重启应用与 Host」。
+- **取消关闭就是取消重启**：如果此时有任务在跑，DSH 会再弹一个「关闭应用会中断当前正在进行的任务」。在那里点「取消」，本次重启就作废——助手不会再强杀、更不会重开，界面收到「已取消重启」的提示后恢复正常。
 
 | 操作 | 宿主（后台生成） | 界面 |
 | --- | --- | --- |
@@ -79,9 +80,10 @@ cd dsh-refresh-restart
 
 | 键 | 默认 | 含义 |
 | --- | --- | --- |
-| `quitTimeoutMs` | `20000` | 等应用自己退出的上限，超时后开始发信号 |
+| `quitTimeoutMs` | `20000` | 等应用自己退出的上限。超时按「用户取消了」处理，不强杀 |
 | `openDelayMs` | `800` | 确认进程消失后，隔多久重新打开 |
 | `appPath` | 空 | 留空自动推断：macOS 找 `.app`，Windows 用 exe 路径，Linux 优先 `APPIMAGE`；换过安装位置或绿色版时填绝对路径 |
+| `forceKill` | `false` | 超时后是否强杀应用。默认关闭；只有确实卡死、且你能接受丢草稿时才打开 |
 
 ## 实现方式
 
@@ -97,13 +99,15 @@ cordis.patch.yml   bundle 补丁：把插件插进宿主
 test/              node --test 回归测试（纯函数 + 路由守卫）
 ```
 
-重启为什么这么绕：桌面版是 Electron 应用，宿主只是它的子进程。只杀宿主，窗口还在但没人管，界面就废了。所以必须由**脱离宿主**的助手先请应用退出，等进程真的消失（必要时升级到强杀），再把同一个应用重新打开：
+重启为什么这么绕：桌面版是 Electron 应用，宿主只是它的子进程。只杀宿主，窗口还在但没人管，界面就废了。所以必须由**脱离宿主**的助手先请应用退出，**确认进程真的消失之后**才重新打开：
 
 | 平台 | 退出 | 重开 |
 | --- | --- | --- |
 | macOS | `osascript … quit`（走正常 `before-quit`） | `open -a 应用.app` |
-| Windows | PowerShell `CloseMainWindow`，兜底 `taskkill /F /T` | 直接拉起 exe |
-| Linux | `SIGTERM`，兜底 `SIGKILL` | 重开 `APPIMAGE` 或可执行文件 |
+| Windows | PowerShell `CloseMainWindow` | 直接拉起 exe |
+| Linux | `SIGTERM` | 重开 `APPIMAGE` 或可执行文件 |
+
+**等不到退出就放弃，绝不「补一刀」。** 应用的退出要经过它自己的 `before-quit`，有任务在跑时 DSH 会弹窗问一句；用户点取消，进程就继续活着。这时再强杀、再重开，等于新旧两个实例抢同一个端口，界面必崩——0.2.1 之前就是这样崩的，0.2.2 把强杀从默认路径里拿掉了（真要强杀得显式打开 `forceKill`）。助手每一步都写进状态文件，界面轮询它：`requested → quitting → cancelled / relaunched`，取消时按钮立刻松开并给出提示，不会一直转圈。
 
 助手是一段 CommonJS，用 `process.execPath` + `ELECTRON_RUN_AS_NODE=1` 执行——借 Electron 自带的 Node，用户不用另装 Node。进程匹配在 macOS 上限定在当前 `.app` 的 `Contents/` 前缀内，Windows 上按映像名，不会误杀别的进程。
 
@@ -128,12 +132,14 @@ node --test test/        # 或 npm test
 
 测试覆盖：配置收敛、三平台的应用识别与重启计划（含 Windows 绿色版、Linux AppImage 分支）、助手脚本的语法与内嵌计划、**环境变量不泄漏到新应用（端到端：真跑一遍助手，检查子进程 `env`）**、loopback/DNS-rebinding 判定、token 比较、路由的方法校验 / 403 / 409 / 501 分支、注销只释放一次。
 
-macOS 分支已在本机实测（真实点过按钮重启）；Windows / Linux 分支是同一套助手换平台参数，有单元测试覆盖，但还没在真机上点过。
+三个平台都已在真机点过按钮：macOS（本机）、Windows 桌面版、Linux 桌面版（均为 0.2.1 实测可行）。取消保护另有一条端到端用例：造一个「不肯退出」的进程，验证助手只写 `cancelled`、不发信号、不重开。
 
 ## 排障
 
 - **按钮没出现**：插件清单只在启动时读取。确认 profile `package.json` 的 `dsh.profile.bundles` 里有 `dsh-refresh-restart`，然后重启应用。
 - **窗口关了没回来**：助手日志在系统临时目录，文件名 `dsh-refresh-restart-<时间>.log`（macOS 在 `$TMPDIR`，Windows 在 `%TEMP%`）。里面按顺序记了退出、等待、信号、重开每一步。0.1.1 之前的版本会因为 `ELECTRON_RUN_AS_NODE` 泄漏而重开出「没有窗口的空壳」，日志表现为 `launched=true` 但应用不出现——升级后日志会写 `应用已重新打开` 或 `进程已启动但没有窗口`。
+- **点重启后弹「关闭应用会中断当前正在进行的任务」**：点「取消」即可，本次重启会作废，应用不受影响；想重启就先等任务结束。
+- **提示「已取消重启」**：同上，说明应用没关成，一切照常。如果反复出现、且你确实想强杀，把配置里的 `forceKill` 改成 `true`。
 - **提示「没找到应用位置」**：自动推断失败，把 `appPath` 配上绝对路径（macOS 填 `.app`，Windows 填 exe，Linux 填 AppImage）。
 
 ## Roadmap

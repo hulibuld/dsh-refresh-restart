@@ -120,6 +120,13 @@ test('helperSource 覆盖三个平台的关键动作', () => {
   // 扫描进程时排除助手自己，否则会把自己杀掉
   assert.match(mac, /pid === process\.pid/)
 
+  // 取消保护：默认不强杀，取消后直接收工，绝不在应用还活着时重开
+  assert.match(mac, /writeState\('cancelled'/)
+  assert.match(mac, /plan\.forceKill/)
+  assert.match(mac, /本次重启作废，不动进程/)
+  // AppleScript 的 -128（用户取消）要按「取消」处理，而不是「退出失败」
+  assert.match(mac, /-128/)
+
   const win = helperSource(buildPlan(detectApp({ platform: 'win32', execPath: WIN_EXEC }), { logPath: '/tmp/l' }))
   assert.match(win, /tasklist/)
   assert.match(win, /taskkill/)
@@ -137,11 +144,15 @@ test('unsupportedReason 按平台给不同原因', () => {
 test('normalizeConfig 缺省与收敛', () => {
   assert.deepEqual(normalizeConfig(undefined), DEFAULTS)
   assert.deepEqual(normalizeConfig(null), DEFAULTS)
-  assert.deepEqual(normalizeConfig({ quitTimeoutMs: 5000, openDelayMs: 0, appPath: '  /A B.app  ' }), {
+  assert.deepEqual(normalizeConfig({ quitTimeoutMs: 5000, openDelayMs: 0, appPath: '  /A B.app  ', forceKill: true }), {
     quitTimeoutMs: 5000,
     openDelayMs: 0,
     appPath: '/A B.app',
+    forceKill: true,
   })
+  // 只有明确的 true 才算开启强杀，别把 "yes" / 1 当成授权
+  assert.equal(normalizeConfig({ forceKill: 'yes' }).forceKill, false)
+  assert.equal(normalizeConfig({ forceKill: 1 }).forceKill, false)
   assert.equal(normalizeConfig({ quitTimeoutMs: 1 }).quitTimeoutMs, 1000)
   assert.equal(normalizeConfig({ quitTimeoutMs: 9e9 }).quitTimeoutMs, 300000)
   assert.equal(normalizeConfig({ quitTimeoutMs: 'abc' }).quitTimeoutMs, DEFAULTS.quitTimeoutMs)

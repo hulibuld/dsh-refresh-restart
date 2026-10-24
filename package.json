@@ -1,6 +1,6 @@
 {
   "name": "dsh-refresh-restart",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "type": "module",
   "description": "在 DeepSeek Harness 界面左上角（收起侧边栏按钮旁边）提供「刷新」「重启」两个快捷按钮。",
   "keywords": [

@@ -36,13 +36,16 @@ export const Config = Schema === null
   : Schema.object({
       quitTimeoutMs: Schema.number()
         .default(20000)
-        .description('「重启」后等待应用自己退出的最长时间（毫秒），超过就强制结束。'),
+        .description('「重启」后等待应用自己退出的最长时间（毫秒）。超时就当我这次重启作废，不动进程。'),
       openDelayMs: Schema.number()
         .default(800)
         .description('确认退出后，隔多久重新打开应用（毫秒）。'),
       appPath: Schema.string()
         .default('')
         .description('应用位置；留空表示自动识别当前运行的 .app。'),
+      forceKill: Schema.boolean()
+        .default(false)
+        .description('超时后是否强杀应用。默认关闭：用户点了「取消」就放弃本次重启，不强杀也不重开。'),
     })
 
 /**
