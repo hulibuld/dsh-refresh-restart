@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { buildPlan, detectApp, helperSource } from '../lib/platform.js'
-import { readState } from '../lib/restart.js'
+import { busyHeld, readState } from '../lib/restart.js'
 
 const MAC_EXEC = '/Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness'
 
@@ -78,4 +78,15 @@ test('forceKill=true 时才允许强杀（配置项默认关闭）', () => {
   assert.match(source, /else if \(plan\.forceKill\)/)
   assert.match(source, /按配置强杀/)
   assert.ok(existsSync(join(dir, 'helper.log')) === false)
+})
+
+test('助手报告取消后，busy 标志要放开，否则按钮永远点不动', () => {
+  assert.equal(busyHeld(true, { phase: 'cancelled' }), false)
+  assert.equal(busyHeld(true, { phase: 'launch-failed' }), false)
+  // 还没结束的阶段仍然占着
+  assert.equal(busyHeld(true, { phase: 'quitting' }), true)
+  assert.equal(busyHeld(true, { phase: 'relaunched' }), true)
+  assert.equal(busyHeld(true, null), true)
+  // 本来就没在重启
+  assert.equal(busyHeld(false, { phase: 'cancelled' }), false)
 })
