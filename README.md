@@ -29,8 +29,11 @@ An unofficial DSH plugin that puts **reload** and **restart** buttons next to th
 ### 方式零：一行命令（已发布 Release 后可用）
 
 ```bash
-# 直接装预打包的 tgz（不需要 Node 构建，不会触发 allowBuilds 询问）
-dsh plugin add https://github.com/hulibuld/dsh-refresh-restart/releases/download/v0.2.0/dsh-refresh-restart-0.2.0.tgz
+# 走 npm（推荐，永远拿最新版）
+dsh plugin add dsh-refresh-restart
+
+# 或者装 GitHub Release 里预打包的 tgz（不需要 Node 构建，不会触发 allowBuilds 询问）
+dsh plugin add https://github.com/hulibuld/dsh-refresh-restart/releases/download/v0.2.1/dsh-refresh-restart-0.2.1.tgz
 ```
 
 装完重启 DSH，左上角就出现两个按钮。
