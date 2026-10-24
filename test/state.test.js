@@ -23,7 +23,11 @@ test('readState：缺文件 / 坏 JSON 都当没有，正常内容原样解析',
   assert.deepEqual(readState(good), { phase: 'cancelled', at: 1 })
 })
 
-test('用户取消关闭时：助手不强杀、不重开，写出 cancelled 就收工', () => {
+// 这条用例造一个 /bin/sh 假应用，靠 ps/pkill 做观测 —— 只有 POSIX 上能跑。
+// Windows 早就换成 PowerShell 助手（lib/win.js），这条 Node 助手路径在那里根本不执行。
+const POSIX_ONLY = process.platform === 'win32' ? 'Windows 走 PowerShell 助手，不跑这条用例' : false
+
+test('用户取消关闭时：助手不强杀、不重开，写出 cancelled 就收工', { skip: POSIX_ONLY }, () => {
   const dir = mkdtempSync(join(tmpdir(), 'rr-cancel-'))
   const logPath = join(dir, 'helper.log')
   const statePath = join(dir, 'state.json')
@@ -62,7 +66,7 @@ test('用户取消关闭时：助手不强杀、不重开，写出 cancelled 就
   }
 })
 
-test('forceKill=true 时才允许强杀（配置项默认关闭）', () => {
+test('forceKill=true 时才允许强杀（配置项默认关闭）', { skip: POSIX_ONLY }, () => {
   const dir = mkdtempSync(join(tmpdir(), 'rr-force-'))
   const plan = buildPlan(detectApp({ platform: process.platform, execPath: MAC_EXEC }), {
     logPath: join(dir, 'helper.log'),
