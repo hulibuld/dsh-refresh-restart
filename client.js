@@ -24,6 +24,7 @@ window.__ModuleLoader__.load({
     var h = React.createElement
     var useState = React.useState
     var useEffect = React.useEffect
+    var useRef = React.useRef
 
     var ROUTE = '/plugins/dsh-refresh-restart'
     var SIZE = 28
@@ -246,10 +247,50 @@ window.__ModuleLoader__.load({
       var error = errorState[0]
       var setError = errorState[1]
 
+      // 自己的容器：量位置时要先把它藏起来，否则 elementFromPoint 命中的永远是它自己。
+      var ownRef = useRef(null)
+
       // 量「收起侧边栏」按钮的位置。渲染路径上不允许抛错，整段包在 try 里。
       useEffect(function () {
         var frame = 0
         var timer = 0
+
+        // 探测某个坐标上已经站着谁。Windows 桌面端的标题栏上有「应用」「编辑」两个
+        // 系统菜单按钮，和「收起侧边栏」挤在同一条带子里，位置是写死的，插件拿不到它们的
+        // 坐标，只能反过来问页面：这个点是不是空的。
+        function isOurs(node) {
+          for (var n = node; n && n !== document.documentElement; n = n.parentNode) {
+            if (n.nodeType !== 1) break
+            if (n.getAttribute && n.getAttribute('data-dsh-refresh-restart') !== null) return true
+          }
+          return false
+        }
+
+        function freeAt(x, y) {
+          try {
+            var node = document.elementFromPoint(x, y)
+            if (!node) return true
+            if (isOurs(node)) return true
+            if (node === document.body || node === document.documentElement) return true
+            var cls = node.getAttribute && node.getAttribute('class')
+            // 标题栏的拖拽层不算占用，点上去是拖窗口，不抢点击
+            if (cls && (cls.indexOf('topStrip') >= 0 || cls.indexOf('drag') >= 0)) return true
+            return false
+          } catch (ignored) {
+            return true
+          }
+        }
+
+        // 两个按钮并排占 left..left+ROW，四角都空才算空。
+        function spotFree(left, top) {
+          var mid = top + SIZE / 2
+          return (
+            freeAt(left + 5, mid) &&
+            freeAt(left + SIZE - 5, mid) &&
+            freeAt(left + SIZE + GAP + 5, mid) &&
+            freeAt(left + ROW - 5, mid)
+          )
+        }
 
         function measure() {
           frame = 0
@@ -265,6 +306,35 @@ window.__ModuleLoader__.load({
             var top = Math.round(rect.top + (rect.height - SIZE) / 2)
             var left = Math.round(rect.left - 4 - ROW)
             if (left < 8) left = Math.round(rect.right + 4)
+
+            // Windows 桌面端的「应用」「编辑」两个菜单按钮不在页面里，是 preload 直接塞进来的
+            // 固定定位元素（div[data-windows-menu]，里面是 shadow DOM），固定在标题栏左侧。
+            // 拿不到它们的尺寸就没法猜，所以直接读它们的盒子，把我们排到右边去。
+            var menu = document.querySelector('[data-windows-menu]')
+            if (menu !== null) {
+              var menuRect = menu.getBoundingClientRect()
+              if (menuRect && menuRect.width > 0 && left < menuRect.right + 4) {
+                left = Math.round(menuRect.right + 4)
+              }
+            }
+
+            // 探测前先把自己的容器藏起来（pointer-events:none）：否则 elementFromPoint
+            // 命中的是自己，会一直误判「这儿空着」，永远让不了位。
+            var own = ownRef.current
+            var pointerEvents = own === null ? null : own.style.pointerEvents
+            if (own !== null) own.style.pointerEvents = 'none'
+            try {
+              // 还是被占着就继续往右让，一次 8px，最多 400px；实在没地方就留在原位
+              // （宁可挤一点，也不要整组按钮消失）。
+              if (!spotFree(left, top)) {
+                var limit = Math.round(left + 400)
+                var shifted = left + 8
+                while (shifted <= limit && !spotFree(shifted, top)) shifted += 8
+                if (shifted <= limit) left = shifted
+              }
+            } finally {
+              if (own !== null) own.style.pointerEvents = pointerEvents === null ? '' : pointerEvents
+            }
             setPos(function (previous) {
               if (previous !== null && previous.left === left && previous.top === top) return previous
               return { left: left, top: top }
@@ -379,6 +449,8 @@ window.__ModuleLoader__.load({
       return h(
         'div',
         {
+          'data-dsh-refresh-restart': 'true',
+          ref: ownRef,
           style: {
             position: 'fixed',
             left: pos.left,
