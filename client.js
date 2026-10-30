@@ -2,9 +2,14 @@
  * dsh-refresh-restart — client half.
  *
  * 手写浏览器模块（没有构建步骤）：React 来自页面自己的模块表，插件只注册一个
- * `shell.overlay` 槽组件。按钮不往页面 DOM 里塞东西，而是用**固定定位**画在
- * 「收起侧边栏」按钮左边一点点 —— 那个按钮的位置每次挂载和窗口变化时重新量，
- * 所以展开/收起侧栏、全屏、换窗口大小都不会跑偏。
+ * `shell.overlay` 槽组件。按钮怎么摆分两种情况：
+ *   · macOS 桌面端：「收起侧边栏」躺在侧栏顶部那条 52px 高的标题栏里，插件把按钮
+ *     直接插进同一条 flex 行，位置由布局自己排 —— 侧栏展开/收起、窗口拉宽拉窄都
+ *     跟着走，不用算坐标，也就不会漂。侧栏收成 56px 图标栏时那条带子塞不下，整组
+ *     藏起来。
+ *   · 其它环境：没有这条带子（Windows 的收起按钮固定在标题栏左侧），退回固定定位，
+ *     挂载时和窗口变化时重新量。
+ * 两种情况都在渲染前算好，渲染路径上不抛错。
  *
  * 两个动作：
  *   · 刷新 —— 页面自己 `location.reload()`，不需要宿主配合；
@@ -30,6 +35,18 @@ window.__ModuleLoader__.load({
     var SIZE = 28
     var GAP = 4
     var ROW = SIZE * 2 + GAP
+    // 侧栏标题栏窄于这个值就算「收成了图标栏」：两个按钮塞不下，整组隐藏。
+    var MIN_STRIP = 132
+
+    // 插进侧栏标题栏要靠 portal。页面模块表里有 react-dom（宿主自己也用），
+    // 拿不到就退化成固定定位那套，功能不受影响。
+    var reactDom = null
+    try {
+      reactDom = require('react-dom')
+    } catch (ignored) {
+      reactDom = null
+    }
+    var createPortal = reactDom && typeof reactDom.createPortal === 'function' ? reactDom.createPortal : null
 
     /* ------------------------------------------------------------------ *
      * 文案
@@ -245,6 +262,10 @@ window.__ModuleLoader__.load({
       var posState = useState(null)
       var pos = posState[0]
       var setPos = posState[1]
+      // 插进侧栏标题栏时用的容器（React 渲染到这上面）。为 null 说明在用固定定位。
+      var hostState = useState(null)
+      var host = hostState[0]
+      var setHost = hostState[1]
       var openState = useState(false)
       var open = openState[0]
       var setOpen = openState[1]
@@ -257,13 +278,22 @@ window.__ModuleLoader__.load({
 
       // 自己的容器：量位置时要先把它藏起来，否则 elementFromPoint 命中的永远是它自己。
       var ownRef = useRef(null)
+      // 重启按钮外面那层：确认框要贴着它定位。
+      var anchorRef = useRef(null)
       // 卸载后停掉状态轮询，避免对已经消失的组件 setState
       var unmountRef = useRef({ current: false })
 
-      // 量「收起侧边栏」按钮的位置。渲染路径上不允许抛错，整段包在 try 里。
+      // 摆位置。两种摆法：插进侧栏标题栏（跟着布局走），或退回固定定位（自己算坐标）。
+      // 渲染路径上不允许抛错，整段包在 try 里。
       useEffect(function () {
         var frame = 0
         var timer = 0
+        var mode = 'none' // 'none' | 'strip' | 'fixed'
+        var stripNode = null
+        var stripHost = null
+        var stripObserver = null
+        var stripWatcher = null
+        var alive = true
 
         // 探测某个坐标上已经站着谁。Windows 桌面端的标题栏上有「应用」「编辑」两个
         // 系统菜单按钮，和「收起侧边栏」挤在同一条带子里，位置是写死的，插件拿不到它们的
@@ -302,15 +332,150 @@ window.__ModuleLoader__.load({
           )
         }
 
-        function measure() {
-          frame = 0
+        // 「收起侧边栏」按钮本身。要跳过我们自己插进去的那两个，否则量着量着会量到自己身上。
+        function findToggle() {
           try {
-            // topStrip 里只有一个按钮，就是「收起侧边栏」；先用它，取不到再退回
-            // 按 class 找 toggle（避免误中设置页里同样带 toggle 字样的开关）。
-            var toggle =
-              document.querySelector('[class*="topStrip"] button') ||
-              document.querySelector('button[class*="toggle"]')
-            if (!toggle) return
+            var groups = [
+              document.querySelectorAll('[class*="topStrip"] button'),
+              document.querySelectorAll('button[class*="toggle"]'),
+            ]
+            for (var g = 0; g < groups.length; g += 1) {
+              var list = groups[g]
+              for (var i = 0; i < list.length; i += 1) {
+                if (!isOurs(list[i])) return list[i]
+              }
+            }
+            return null
+          } catch (ignored) {
+            return null
+          }
+        }
+
+        // 那个按钮外面若是侧栏顶部的标题栏，返回它；Windows 上没有这条带子，返回 null。
+        function stripOf(toggle) {
+          try {
+            var parent = toggle.parentNode
+            if (!parent || parent.nodeType !== 1) return null
+            var cls = parent.getAttribute('class') || ''
+            return cls.indexOf('topStrip') >= 0 ? parent : null
+          } catch (ignored) {
+            return null
+          }
+        }
+
+        // 侧栏收成 56px 图标栏时标题栏只剩一条缝，塞不下两个按钮：整组藏起来，
+        // 展开回来再显示（ResizeObserver 会再叫一次）。
+        function fitStrip() {
+          if (stripHost === null || stripNode === null) return
+          try {
+            stripHost.style.display = stripNode.clientWidth >= MIN_STRIP ? 'inline-flex' : 'none'
+          } catch (ignored) {
+            // 量不到就保持现状
+          }
+        }
+
+        function clearStrip() {
+          if (stripObserver !== null) {
+            try {
+              stripObserver.disconnect()
+            } catch (ignored) {}
+            stripObserver = null
+          }
+          if (stripWatcher !== null) {
+            try {
+              stripWatcher.disconnect()
+            } catch (ignored) {}
+            stripWatcher = null
+          }
+          if (stripHost !== null && stripHost.parentNode) {
+            try {
+              stripHost.parentNode.removeChild(stripHost)
+            } catch (ignored) {}
+          }
+          stripHost = null
+          stripNode = null
+          if (mode === 'strip') {
+            mode = 'none'
+            if (alive) setHost(null)
+          }
+        }
+
+        // 标题栏平时是右对齐（flex-end），全屏时改成左对齐（flex-start）。右对齐时我们插在
+        // 收起按钮前面就落在它左边；左对齐时要插在它后面，否则会把官方那个按钮顶到右边去。
+        function placeHost(strip, toggle) {
+          if (stripHost === null) return
+          try {
+            var justify = ''
+            try {
+              var computed = window.getComputedStyle ? window.getComputedStyle(strip) : null
+              justify = computed && computed.justifyContent ? computed.justifyContent : ''
+            } catch (ignoredStyle) {
+              justify = ''
+            }
+            // 不同内核把「从左边开始排」报成 flex-start / start / left 都见过，都算左对齐
+            var leftAligned = justify === 'flex-start' || justify === 'start' || justify === 'left'
+            if (leftAligned) {
+              if (stripHost.previousSibling !== toggle) strip.insertBefore(stripHost, toggle.nextSibling)
+            } else if (stripHost.nextSibling !== toggle) {
+              strip.insertBefore(stripHost, toggle)
+            }
+          } catch (ignored) {}
+        }
+
+        function mountStrip(strip, toggle) {
+          if (mode === 'strip' && stripNode === strip && stripHost !== null) {
+            fitStrip()
+            return
+          }
+          clearStrip()
+          stripHost = document.createElement('div')
+          stripHost.setAttribute('data-dsh-refresh-restart', 'true')
+          stripHost.style.cssText =
+            'display:inline-flex;align-items:center;gap:' + GAP + 'px;flex:none;margin:0 4px 0 0;pointer-events:auto'
+          try {
+            strip.insertBefore(stripHost, toggle)
+          } catch (ignored) {
+            try {
+              strip.appendChild(stripHost)
+            } catch (ignoredAgain) {}
+          }
+          placeHost(strip, toggle)
+          stripNode = strip
+          mode = 'strip'
+          fitStrip()
+          if (typeof ResizeObserver === 'function') {
+            try {
+              stripObserver = new ResizeObserver(fitStrip)
+              stripObserver.observe(strip)
+            } catch (ignored) {}
+          }
+          // 侧栏折叠/展开时 React 会重建那一列，我们的容器可能被挤掉：盯着，掉了就插回去。
+          if (typeof MutationObserver === 'function') {
+            try {
+              stripWatcher = new MutationObserver(function () {
+                if (stripHost === null || stripNode === null) return
+                var live = findToggle()
+                if (stripHost.parentNode !== stripNode) {
+                  try {
+                    if (live && live.parentNode === stripNode) stripNode.insertBefore(stripHost, live)
+                    else stripNode.appendChild(stripHost)
+                  } catch (ignored) {}
+                }
+                if (live !== null && live.parentNode === stripNode) placeHost(stripNode, live)
+                fitStrip()
+              })
+              stripWatcher.observe(strip, { childList: true })
+            } catch (ignored) {}
+          }
+          // 插进标题栏就不再用固定坐标，把旧坐标清掉
+          if (alive) {
+            setPos(null)
+            setHost(stripHost)
+          }
+        }
+
+        function measureFixed(toggle) {
+          try {
             var rect = toggle.getBoundingClientRect()
             if (!rect || rect.width === 0) return
             var top = Math.round(rect.top + (rect.height - SIZE) / 2)
@@ -345,6 +510,7 @@ window.__ModuleLoader__.load({
             } finally {
               if (own !== null) own.style.pointerEvents = pointerEvents === null ? '' : pointerEvents
             }
+            if (!alive) return
             setPos(function (previous) {
               if (previous !== null && previous.left === left && previous.top === top) return previous
               return { left: left, top: top }
@@ -354,11 +520,30 @@ window.__ModuleLoader__.load({
           }
         }
 
+        function sync() {
+          frame = 0
+          if (!alive) return
+          var toggle = findToggle()
+          if (toggle === null) {
+            if (mode === 'strip') clearStrip()
+            return
+          }
+          var strip = stripOf(toggle)
+          if (strip !== null && createPortal !== null) {
+            mountStrip(strip, toggle)
+            return
+          }
+          if (mode === 'strip') clearStrip()
+          mode = 'fixed'
+          measureFixed(toggle)
+        }
+
         function schedule() {
-          if (!frame) frame = window.requestAnimationFrame(measure)
+          if (!alive) return
+          if (!frame) frame = window.requestAnimationFrame(sync)
           window.clearTimeout(timer)
           // 侧栏展开/收起有 150ms 动画，动画结束后再补量一次
-          timer = window.setTimeout(measure, 300)
+          timer = window.setTimeout(sync, 300)
         }
 
         schedule()
@@ -367,12 +552,14 @@ window.__ModuleLoader__.load({
         document.addEventListener('transitionend', schedule, true)
         window.addEventListener('keydown', schedule, true)
         return function () {
+          alive = false
           if (frame) window.cancelAnimationFrame(frame)
           window.clearTimeout(timer)
           window.removeEventListener('resize', schedule)
           document.removeEventListener('click', schedule, true)
           document.removeEventListener('transitionend', schedule, true)
           window.removeEventListener('keydown', schedule, true)
+          clearStrip()
         }
       }, [])
 
@@ -527,28 +714,32 @@ window.__ModuleLoader__.load({
           })
       }
 
-      if (pos === null) return null
+      // 确认框：插进标题栏时那一列会裁掉 absolute 溢出，改成按按钮位置定死在视口上。
+      function popoverStyle() {
+        if (host === null) return POPOVER_STYLE
+        var anchor = anchorRef.current
+        var rect = anchor === null ? null : anchor.getBoundingClientRect()
+        if (!rect) return POPOVER_STYLE
+        var width = 260
+        var viewport = typeof window === 'undefined' ? 1280 : window.innerWidth
+        var room = Math.max(8, viewport - width - 8)
+        var left = Math.min(Math.max(8, Math.round(rect.right - width)), room)
+        var style = {}
+        for (var key in POPOVER_STYLE) {
+          if (Object.prototype.hasOwnProperty.call(POPOVER_STYLE, key)) style[key] = POPOVER_STYLE[key]
+        }
+        style.position = 'fixed'
+        style.left = left
+        style.top = Math.round(rect.bottom + 8)
+        style.zIndex = 140
+        return style
+      }
 
-      return h(
-        'div',
-        {
-          'data-dsh-refresh-restart': 'true',
-          ref: ownRef,
-          style: {
-            position: 'fixed',
-            left: pos.left,
-            top: pos.top,
-            display: 'flex',
-            alignItems: 'center',
-            gap: GAP,
-            pointerEvents: 'auto',
-            zIndex: 100,
-          },
-        },
+      var pair = [
         h(IconButton, { label: TEXT.refreshTitle, tip: '刷新', onClick: doRefresh }, REFRESH_ICON),
         h(
           'div',
-          { style: { position: 'relative', display: 'inline-flex' } },
+          { ref: anchorRef, style: { position: 'relative', display: 'inline-flex' } },
           h(
             IconButton,
             {
@@ -565,7 +756,7 @@ window.__ModuleLoader__.load({
           open
             ? h(
                 'div',
-                { style: POPOVER_STYLE, role: 'dialog', 'aria-label': TEXT.confirmTitle, 'data-dsh-refresh-restart-popover': 'true' },
+                { style: popoverStyle(), role: 'dialog', 'aria-label': TEXT.confirmTitle, 'data-dsh-refresh-restart-popover': 'true' },
                 h('div', { style: { fontWeight: 600, marginBottom: 4, color: 'var(--dsw-alias-label-primary)' } }, TEXT.confirmTitle),
                 h('div', { style: { color: 'var(--dsw-alias-label-secondary)', marginBottom: 10 } }, TEXT.confirmBody),
                 h(
@@ -592,6 +783,35 @@ window.__ModuleLoader__.load({
               )
             : null,
         ),
+      ]
+
+      // 插进侧栏标题栏：位置交给 flex 排，侧栏展开/收起、窗口缩放都跟着走。
+      if (host !== null && createPortal !== null) {
+        return createPortal(
+          h('div', { style: { display: 'inline-flex', alignItems: 'center', gap: GAP, pointerEvents: 'auto' } }, pair),
+          host,
+        )
+      }
+
+      if (pos === null) return null
+
+      return h(
+        'div',
+        {
+          'data-dsh-refresh-restart': 'true',
+          ref: ownRef,
+          style: {
+            position: 'fixed',
+            left: pos.left,
+            top: pos.top,
+            display: 'flex',
+            alignItems: 'center',
+            gap: GAP,
+            pointerEvents: 'auto',
+            zIndex: 100,
+          },
+        },
+        pair,
       )
     }
 

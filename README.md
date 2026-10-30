@@ -1,6 +1,6 @@
 # dsh-refresh-restart
 
-给 [DeepSeek Harness](https://github.com/deepseek-ai) 桌面界面左上角加两个小按钮：**刷新界面** 和 **重启应用**。位置跟随「收起侧边栏」按钮，展开 / 收起侧栏、改窗口大小、全屏都不会跑偏。
+给 [DeepSeek Harness](https://github.com/deepseek-ai) 桌面界面左上角加两个小按钮：**刷新界面** 和 **重启应用**。位置跟着「收起侧边栏」按钮走，展开 / 收起侧栏、改窗口大小、全屏都不会跑偏。
 
 An unofficial DSH plugin that puts **reload** and **restart** buttons next to the sidebar toggle in the top-left corner of the DeepSeek Harness desktop UI.
 
@@ -115,7 +115,12 @@ Windows 不能用同一条路。桌面版的主进程是 Chromium 起的，整�
 
 **重开时会把 `ELECTRON_*`、`NODE_OPTIONS`、`NODE_PATH` 从环境里摘掉。** 这不是洁癖：助手自己带着 `ELECTRON_RUN_AS_NODE=1`（否则它跑不起来），而 macOS 的 `open` 会把调用者的环境原样交给新启动的应用。带着这个开关，Electron 会按纯 Node 模式启动——进程列表里看得到，窗口永远不出来，用户看到的就是「关掉了、再也没打开」。这正是 0.1.1 修掉的真实 bug。重开之后助手还会确认渲染进程（`--type=renderer`）真的出现，否则按 bundle id 再 `open` 一次，并在日志里写明。
 
-按钮不往页面 DOM 里塞节点，而是在 `shell.overlay` 槽里用 `position: fixed` 画出来，每次挂载、窗口尺寸变化、点击、`transitionend` 都重新量一次「收起侧边栏」按钮的坐标。鼠标悬停时按钮下方出现「刷新」「重启」两个小提示框。
+按钮挂在 `shell.overlay` 槽里，具体摆法分两种：
+
+- **macOS 桌面端**：`收起侧边栏` 躺在侧栏顶部那条 52px 高的标题栏（`topStrip`）里。插件把自己的两个按钮**直接插进同一条 flex 行**（平时插在收起按钮左边，全屏时插在它右边），位置由布局自己排——侧栏展开、收起、窗口拉宽拉窄、切全屏都跟着走，插件一个坐标都不算，所以不会漂。侧栏收成 56px 图标栏时那条带子塞不下两个按钮，整组自动隐藏；展开回来立刻出现。
+- **其它环境**（Windows 桌面版没有这条带子，收起按钮固定在标题栏左侧）：退回 `position: fixed`，每次挂载、窗口尺寸变化、点击、`transitionend` 都重新量一次坐标。
+
+鼠标悬停时按钮下方出现「刷新」「重启」两个小提示框。
 
 Windows 桌面版的标题栏左侧还有系统自己的「应用」「编辑」两个菜单按钮（由桌面端 preload 注入的 `div[data-windows-menu]`，不是页面组件）。这两个按钮和本插件的两个按钮会抢同一块地方，所以渲染前会先读它们的外框：**被占着就整组往右让到它们右边，没占着就照原样**贴在「收起侧边栏」左边。让位是纯几何判断，不隐藏、不接管、不重排系统按钮——就算未来源码结构变了，最坏也只是退化成「两个按钮挨得近一点」，不会让系统菜单消失。
 
