@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 先看 README 的「已知问题与修复记录」
+    url: https://github.com/hulibuld/dsh-refresh-restart
+    about: 装不上、连不通这类问题大多已经写在里面了
+  - name: 看 npm 上的版本与说明
+    url: https://www.npmjs.com/package/dsh-refresh-restart
+    about: 确认你装的是不是最新版
