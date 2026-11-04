@@ -1,0 +1,57 @@
+name: 报告问题
+description: 装了不生效、报错、行为不对，用这个
+title: '[bug] '
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        填得越具体，修得越快。「DSH 版本」和「报错原文」这两项最影响判断，尽量不要留空。
+  - type: input
+    id: dsh-version
+    attributes:
+      label: DSH 版本
+      description: 桌面 App 的「关于」里能看到；也可以跑 dsh --version。两个版本号不一样时两个都写。
+      placeholder: 例如 0.2.1-rc.3
+    validations:
+      required: true
+  - type: input
+    id: plugin-version
+    attributes:
+      label: 插件版本
+      description: 插件列表里显示的版本号，或者 npm view dsh-refresh-restart version。
+      placeholder: 例如 1.0.0
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 发生了什么
+      description: 一步一步写你点了什么、屏幕上出现了什么。截图可以直接拖进来。
+    validations:
+      required: true
+  - type: textarea
+    id: error-text
+    attributes:
+      label: 报错原文
+      description: 直接粘贴，不要转述。写「打不开」这种没法定位。
+      render: shell
+    validations:
+      required: false
+  - type: textarea
+    id: config
+    attributes:
+      label: 相关配置
+      description: profile 里这个插件的配置片段。贴之前把 token 和路径里的用户名删掉。
+      render: yaml
+    validations:
+      required: false
+  - type: checkboxes
+    id: precheck
+    attributes:
+      label: 先确认
+      options:
+        - label: 重启过 DSH（插件改动不走热重载）
+          required: true
+        - label: 在 README 的「已知问题与修复记录」里找过，不是已经记录的问题
+          required: true
