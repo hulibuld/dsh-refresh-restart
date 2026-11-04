@@ -1,0 +1,29 @@
+name: 想要一个功能
+description: 用法上缺什么、哪里别扭，用这个
+title: '[feat] '
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你遇到的是什么麻烦
+      description: 先说场景，再说你想要的功能。不要一上来就写方案。
+    validations:
+      required: true
+  - type: textarea
+    id: workaround
+    attributes:
+      label: 现在怎么绕过去的
+      description: 没有就写「没有」。这一条能帮我判断值不值得做。
+    validations:
+      required: false
+  - type: dropdown
+    id: scope
+    attributes:
+      label: 这个改动的范围
+      options:
+        - 改一句话或一个默认值
+        - 加一个小功能
+        - 要动整体结构
+    validations:
+      required: true
