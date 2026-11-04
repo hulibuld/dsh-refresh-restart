@@ -71,6 +71,10 @@ macOS、Windows、Linux 的桌面版，刷新和重启都能用。浏览器里�
 node --test test/
 ```
 
+## 已知问题与修复记录
+
+累计的修复、现象、原因与修法记在 [docs/FIXES.md](docs/FIXES.md)。以后每修一次加一行，别攒着。
+
 ## 许可
 
 MIT
