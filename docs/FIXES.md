@@ -10,6 +10,7 @@
 
 | 修复版本 | 修复日期 | 现象 | 原因 | 修复方式 | 提交 |
 | --- | --- | --- | --- | --- | --- |
+| 未记录 | 2026-11-06 | Windows 上打开 `forceKill` 后，重启仍要空等 `quitTimeoutMs`（默认 20 秒）才强杀 | DSH 的 close 处理只把窗口藏进托盘，`CloseMainWindow` 不会让进程退出，这段等待必然跑满 | `forceKill` 时跳过礼貌关闭与等待，直接强杀 | f78d68d |
 | 未记录 | 2026-10-30 | fix(position): macOS 插进标题栏 flex 行，Windows 让位系统菜单；新增摆位回归测试 (0.3.1) | 未记录 | fix(position): macOS 插进标题栏 flex 行，Windows 让位系统菜单；新增摆位回归测试 (0.3.1) | 0e3541d6 |
 | 未记录 | 2026-10-24 | fix(windows): 借 Explorer 交接 PowerShell 助手，修「只关不开」 | 未记录 | fix(windows): 借 Explorer 交接 PowerShell 助手，修「只关不开」 | 546f677f |
 | 未记录 | 2026-10-24 | fix(restart): 取消关闭时放弃重启，不强杀不重开；forceKill 显式开关；新增 /state 进度路由 | 未记录 | fix(restart): 取消关闭时放弃重启，不强杀不重开；forceKill 显式开关；新增 /state 进度路由 | bdbaeb06 |
