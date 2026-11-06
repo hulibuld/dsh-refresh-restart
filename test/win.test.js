@@ -43,6 +43,16 @@ test('win-helper.ps1 关键动作都在', () => {
   assert.ok(source.includes('if (-not $forceKill)'))
 })
 
+test('forceKill 打开时跳过礼貌关闭与 quitTimeoutMs 等待', () => {
+  const source = winHelperSource()
+  const guard = source.indexOf('if (-not $forceKill)')
+  // DSH 的 close 处理只把窗口藏起来，进程不会退出；forceKill 时再问一遍
+  // 只会白等满 quitTimeoutMs（默认 20 秒），所以整段必须先礼后兵地包进分支。
+  assert.ok(guard > 0, '缺少 forceKill 分支')
+  assert.ok(source.indexOf('$proc.CloseMainWindow()') > guard, 'CloseMainWindow 应只在 forceKill 关闭时调用')
+  assert.ok(source.indexOf('$deadline =') > guard, 'quitTimeoutMs 的等待应只在 forceKill 关闭时进行')
+})
+
 test('快捷方式脚本是纯 ASCII 且用参数传路径', () => {
   const script = shortcutScript()
   assert.ok(isAscii(script), '快捷方式脚本里出现了非 ASCII 字符')
