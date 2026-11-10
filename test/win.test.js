@@ -17,12 +17,16 @@ const { join } = await import('node:path')
 
 const isAscii = (text) => [...text].every((char) => char.codePointAt(0) <= 127)
 
-test('win-helper.ps1 存在且是纯 ASCII', () => {
+// 独立的 PowerShell 注释允许中文；忽略编码标记后，仍约束执行代码为 ASCII。
+const executableLines = (text) => text.replace(/^\uFEFF/, '').split(/\r?\n/).filter((line) => !/^\s*#/.test(line)).join('\n')
+
+test('win-helper.ps1 存在，允许中文注释且执行代码保持 ASCII', () => {
   const source = winHelperSource()
   assert.ok(source.length > 2000, `助手脚本太短：${source.length}`)
-  // Windows PowerShell 5.1 用 ANSI 解码无 BOM 的 UTF-8；脚本里一旦有中文，
-  // 解析就会因为引号错位而失败。这条断言就是防止以后有人加中文注释。
-  assert.ok(isAscii(source), 'win-helper.ps1 里出现了非 ASCII 字符')
+  // PowerShell 7 默认按 UTF-8 读取；BOM 同时保证显式 5.1 兼容模式正确解码。
+  // 仍禁止执行代码或字符串出现非 ASCII 字符，注释不受此限制。
+  assert.ok(source.startsWith('\uFEFF'), 'win-helper.ps1 必须带 UTF-8 BOM')
+  assert.ok(isAscii(executableLines(source)), 'win-helper.ps1 执行代码里出现了非 ASCII 字符')
   assert.ok(WIN_HELPER_PATH.endsWith('win-helper.ps1'))
 })
 
@@ -48,7 +52,7 @@ test('win-helper.ps1 关键动作都在', () => {
 
 test('compatibility export uses the existing Explorer desktop, never a shortcut or new Shell.Application', () => {
   const script = shortcutScript()
-  assert.ok(isAscii(script))
+  assert.ok(isAscii(executableLines(script)), '交接脚本执行代码必须保持 ASCII，独立注释允许中文')
   assert.ok(script.includes('9BA05972-F6A8-11CF-A442-00A0C90A8F39'))
   assert.ok(script.includes('FindWindowSW([ref]$location, [ref]$root, 8, [ref]$hwnd, 1)'))
   assert.ok(script.includes('$application = $document.Application'))
@@ -137,7 +141,7 @@ test('powershellPath prefers installed pwsh7; 5.1 requires explicit compatibilit
 })
 
 test('handOff parameterizes ShellExecute and reports launcher failures without direct fallback', async () => {
-  const { mkdtempSync, rmSync } = await import('node:fs')
+  const { mkdtempSync, readFileSync, rmSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
   const dir = mkdtempSync(join(tmpdir(), 'dsh-handoff-unit-'))
   const calls = []
@@ -146,6 +150,7 @@ test('handOff parameterizes ShellExecute and reports launcher failures without d
   try {
     const run = (...args) => { calls.push(args); return { status: 0 } }
     assert.deepEqual(handOff({ ...options, run }), { ok: true, mode: 'explorer-shell' })
+    assert.equal(readFileSync(options.scriptPath, 'utf8'), '\uFEFF' + shortcutScript(), '生成脚本必须带 UTF-8 BOM，并保持原脚本内容')
     assert.equal(calls.length, 1)
     assert.ok(calls[0][0].endsWith('pwsh.exe'))
     assert.deepEqual(calls[0][1], ['-NoProfile', '-NonInteractive', '-STA', '-File', options.scriptPath,

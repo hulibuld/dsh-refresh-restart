@@ -1,8 +1,8 @@
-# dsh-refresh-restart Windows watcher. PowerShell 7 by default; ASCII source.
-# Launched through the existing Explorer desktop, never through a temporary LNK.
-# The client opens DSH's Application menu after ready-for-menu. UI Automation
-# invokes only the exact native Exit item belonging to the verified app process.
-# DSH itself owns the task-cancellation confirmation and graceful shutdown.
+﻿# dsh-refresh-restart 的 Windows 监视助手；默认使用 PowerShell 7，注释采用中文。
+# 通过现有 Explorer 桌面启动，不经过临时 LNK。
+# 客户端收到 ready-for-menu 后打开 DSH 的「应用」菜单；UI Automation
+# 只调用属于已核验应用进程的原生「退出」菜单项。
+# 任务中断确认和正常退出清理由 DSH 自身负责。
 param([Parameter(Mandatory = $true)][string]$PayloadFile)
 $ErrorActionPreference = 'Stop'
 $utf8 = New-Object System.Text.UTF8Encoding($false)
@@ -23,7 +23,7 @@ function Write-Log([string]$Message) {
 }
 function Write-State([string]$Phase, [string]$Detail = '') {
     $doc = [ordered]@{ requestId = $requestId; phase = $Phase; detail = $Detail; at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() }
-    # Atomic replacement prevents the polling client from reading partial JSON.
+    # 使用原子替换，避免轮询客户端读到尚未写完的 JSON。
     $temp = $statePath + '.' + $PID + '.tmp'
     [IO.File]::WriteAllText($temp, ($doc | ConvertTo-Json -Compress), $utf8)
     Move-Item -LiteralPath $temp -Destination $statePath -Force
@@ -53,9 +53,9 @@ function Resolve-AppMainProcess([int]$HostProcessId) {
             throw 'DSH ancestry process identity changed during discovery'
         }
         $main = $process
-        # A verified app-owned window marks the main process, not its launcher.
-        # After relaunch, its parent is our short-lived watcher and may be gone.
-        # Never follow that stale parent PID (which may also have been reused).
+        # 经核验的应用窗口标识主进程，而不是它的启动器。
+        # 重开后，父进程是可能已经退出的短期监视助手。
+        # 不再追溯这个过期的父 PID，它也可能已被其他进程复用。
         if ($main.MainWindowHandle -ne [IntPtr]::Zero) { break }
         $childStarted = $process.StartTime
         $current = [int]$record.ParentProcessId
@@ -81,9 +81,9 @@ function Find-NativeExitItem([int]$ProcessId) {
         [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
         [System.Windows.Automation.ControlType]::MenuItem)
     foreach ($window in $windows) {
-        # Electron uses Chromium Views, NOT a Win32 #32768 popup/HMENU.
-        # These native classes and parent/child relationships were observed in
-        # the actual DSH menu. Do not match renderer content by label alone.
+        # Electron 使用 Chromium Views，而非 Win32 的 #32768 弹出菜单或 HMENU。
+        # 这些原生类及父子关系已在真实 DSH 菜单中观察确认；
+        # 不得只凭标签匹配渲染器中的内容。
         if ($window.Current.ProcessId -ne $ProcessId -or
             $window.Current.ClassName -notmatch '^Chrome_WidgetWin_[0-9]+$') { continue }
         foreach ($menu in $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $menuCondition)) {
@@ -122,7 +122,7 @@ try {
     Write-State 'ready-for-menu'
     [IO.File]::WriteAllText($bootPath, ('{"pid":' + $PID + '}'), $utf8)
 
-    # This stage has no exit side effect until an exact, app-owned item is found.
+    # 找到明确属于该应用的菜单项前，此阶段不会触发退出。
     $deadline = (Get-Date).AddSeconds(15)
     $exitItem = $null
     while ((Get-Date) -lt $deadline -and $null -eq $exitItem) {
@@ -137,7 +137,7 @@ try {
 
     $deadline = (Get-Date).AddMilliseconds($quitTimeoutMs)
     while ((Get-AppProcesses).Count -gt 0) {
-        # Never time out while the user is still deciding in DSH's native dialog.
+        # 用户仍在 DSH 原生确认框中做决定时，不因超时停止等待。
         if (Test-NativeDialog $mainId) {
             Write-State 'awaiting-confirmation'
             $deadline = (Get-Date).AddMilliseconds($quitTimeoutMs)
@@ -151,16 +151,16 @@ try {
     $appExited = $true
     Write-Log 'all matching DSH executable processes exited'
     Start-Sleep -Milliseconds $openDelayMs
-    # Guard against a manual relaunch between the wait and our launch.
+    # 防止等待结束到启动之间，用户已手动重开应用而造成重复启动。
     if ((Get-AppProcesses).Count -gt 0) {
         Write-State 'relaunched' 'application already reopened'
         exit 0
     }
     $since = Get-Date
     Write-State 'launching'
-    # Launch from the Explorer-handed-off watcher, not the terminating Host.
-    # Actual DSH shutdown survival still needs end-to-end verification.
-    # Do not launch twice merely because startup is slow.
+    # 从 Explorer 交接的监视助手启动，不从即将退出的宿主启动。
+    # 是否能在真实 DSH 退出后存活，仍须通过端到端验证确认。
+    # 不因启动缓慢而重复启动。
     Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
     Remove-Item Env:ELECTRON_NO_ASAR -ErrorAction SilentlyContinue
     Start-Process -FilePath $exe -WorkingDirectory ([IO.Path]::GetDirectoryName($exe)) | Out-Null
