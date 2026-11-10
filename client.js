@@ -1,5 +1,5 @@
 /**
- * dsh-refresh-restart — client half.
+ * dsh-refresh-restart 的客户端部分。
  *
  * 手写浏览器模块（没有构建步骤）：React 来自页面自己的模块表，插件只注册一个
  * `shell.overlay` 槽组件。按钮怎么摆分两种情况：
