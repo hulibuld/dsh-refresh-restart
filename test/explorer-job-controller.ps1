@@ -6,7 +6,7 @@ param(
     [Parameter(Mandatory = $true)][string]$Token
 )
 $ErrorActionPreference = 'Stop'
-# Test-only native surface. No job limits, kill-on-close, termination or breakaway.
+# 仅供测试使用的原生接口。不设置 Job 限制、关闭即终止、进程终止或脱离标志。
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -59,13 +59,13 @@ try {
     $worker = [Diagnostics.Process]::Start($start)
     $workerStart = $worker.StartTime.ToUniversalTime().Ticks
     $ready = Read-Receipt 'ready.json'
-    # Only the process THIS controller just created can reach Assign. Never accept
-    # an externally supplied PID, the test runner PID, or a DSH PID.
+    # 只有本控制器刚创建的进程才能进入 Assign。绝不接受
+    # 外部传入的 PID、测试运行器的 PID 或 DSH 的 PID。
     if ($worker.HasExited -or $ready.pid -ne $worker.Id -or $ready.token -cne $Token -or
         $ready.execPath -ine $NodePath -or $worker.Path -ine $NodePath -or
         $worker.StartTime.ToUniversalTime().Ticks -ne $workerStart) { throw 'New worker identity validation failed' }
-    # PROCESS_SET_QUOTA | PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION.
-    # PROCESS_TERMINATE is required by AssignProcessToJobObject, NEVER exercised.
+    # 权限组合：PROCESS_SET_QUOTA | PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION。
+    # AssignProcessToJobObject 要求 PROCESS_TERMINATE 权限，但绝不执行终止操作。
     $workerHandle = [ExplorerTestJob]::OpenProcess(0x1101, $false, [uint32]$worker.Id)
     if ($workerHandle -eq [IntPtr]::Zero) { Native-Failure 'OpenProcess(worker)' }
     if ($worker.HasExited -or $worker.StartTime.ToUniversalTime().Ticks -ne $workerStart) { throw 'Worker exited before assignment' }
@@ -82,7 +82,7 @@ try {
         $boot.pid -le 0 -or $boot.pid -eq $worker.Id -or $boot.pid -eq $PID) { throw 'Writer receipt identity validation failed' }
     $writer = [Diagnostics.Process]::GetProcessById([int]$boot.pid)
     if ($writer.HasExited -or $writer.Path -ine (Get-Process -Id $PID).Path) { throw 'Writer process identity validation failed' }
-    # Writer handle is READ-ONLY. No Assign call for the writer or any existing process.
+    # 写入器句柄只读。不会对写入器或任何已有进程调用 Assign。
     $writerHandle = [ExplorerTestJob]::OpenProcess(0x1000, $false, [uint32]$boot.pid)
     if ($writerHandle -eq [IntPtr]::Zero) { Native-Failure 'OpenProcess(writer)' }
     $writerInside = $false
@@ -98,7 +98,7 @@ try {
     $result.error = $_.Exception.Message
 } finally {
     [IO.File]::WriteAllText((Join-Path $Directory 'finish'), $Token)
-    # All fixtures have independent deadlines; only wait for natural exits.
+    # 所有测试夹具都有独立截止时间；这里只等待自然退出。
     if ($null -ne $worker) { $result.workerExited = $worker.WaitForExit(2000) }
     if ($null -ne $writer) { $result.writerExited = $writer.WaitForExit(2000) }
     foreach ($handle in @($writerHandle, $workerHandle, $job)) {

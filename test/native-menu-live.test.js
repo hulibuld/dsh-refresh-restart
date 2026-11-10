@@ -7,9 +7,9 @@ import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 import { powershellPath } from '../lib/win.js'
 
-// Opt-in because this briefly shows a harmless test window. Legacy 5.1 is
-// intentional ONLY for the old WinForms native ContextMenu test fixture.
-// Production helper continues to use PowerShell 7; no DSH UI is operated.
+// 需要显式启用，因为会短暂显示无害测试窗口。仅为旧版 WinForms 原生
+// ContextMenu 测试夹具有意使用旧版 5.1。
+// 生产助手仍使用 PowerShell 7；不操作任何 DSH 界面。
 test('legacy Win32 popup is rejected by the Chromium Views-only production finder', {
   skip: process.platform !== 'win32' || process.env.DSH_TEST_NATIVE_MENU !== '1',
 }, async () => {
@@ -54,8 +54,8 @@ Write-Output 'legacy popup rejected without invoking any action'
     assert.equal(existsSync(receipt), false, 'no legacy Exit action may run')
     assert.match(result.stdout, /legacy popup rejected/)
   } finally {
-    // Fixture self-closes after 10 seconds, even if probing failed. Never kill
-    // a process by name/path and never touch the actual DSH process.
+    // 即使探测失败，测试夹具也会在 10 秒后自行关闭。绝不按名称或路径
+    // 终止进程，也绝不触碰真实的 DSH 进程。
     await exited
     rmSync(dir, { recursive: true, force: true })
   }

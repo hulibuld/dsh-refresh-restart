@@ -7,8 +7,8 @@ import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 import { powershellPath } from '../lib/win.js'
 
-// Executes the actual production matcher with tree doubles, not an action.
-// Actual DSH menu discovery was checked separately, WITHOUT invoking Exit.
+// 使用树结构替身执行真实生产匹配器，不执行任何操作。
+// 真实 DSH 菜单发现已单独验证，未调用 Exit。
 test('Views matcher accepts only unique native, enabled, visible, process-owned Exit', {
   skip: process.platform !== 'win32',
 }, () => {

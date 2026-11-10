@@ -5,8 +5,8 @@ param(
     [Parameter(Mandatory = $true)][string]$HandOffScript
 )
 $ErrorActionPreference = 'Stop'
-# Test-only self-exit watchdog: unlike child_process timeout it sends no kill
-# signal and never opens/terminates another process. Broker source is unchanged.
+# 仅供测试使用的自行退出看门狗：与 child_process 超时不同，它不发送终止
+# 信号，也不会打开或终止其他进程。代理源码保持不变。
 Add-Type -TypeDefinition @'
 using System;
 using System.Threading;

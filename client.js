@@ -1,5 +1,5 @@
 /**
- * dsh-refresh-restart — client half.
+ * dsh-refresh-restart 的客户端部分。
  *
  * 手写浏览器模块（没有构建步骤）：React 来自页面自己的模块表，插件只注册一个
  * `shell.overlay` 槽组件。按钮怎么摆分两种情况：
@@ -78,8 +78,8 @@ window.__ModuleLoader__.load({
       'launch-failed': '应用已关闭，但没能自动重新打开，请手动启动',
     }
 
-    // Packaged Windows DSH exposes its native Application menu via this open
-    // shadow root, not a quit bridge. Never guess IPC channels or send keys.
+    // Windows 打包版 DSH 通过此开放的影子根节点提供原生「应用」菜单，
+    // 而非直接退出接口；不得猜测 IPC 通道或模拟按键。
     function nativeApplicationButton() {
       var host = document.querySelector('[data-windows-menu]')
       var root = host && host.shadowRoot

@@ -56,7 +56,7 @@ async function watch(states, target = button(), requestId = 'operation-1') {
   vm.runInNewContext('(' + watchSource + ')', sandbox)(requestId)
   for (let i = 0; queue.length && i < states.length; i += 1) {
     queue.shift()()
-    // Flush fetch -> response.json -> state handler without real polling delays.
+    // 依次完成 fetch、response.json 和状态处理，不引入真实轮询延迟。
     await new Promise(resolve => setImmediate(resolve))
   }
   return { errors, target, fetches }

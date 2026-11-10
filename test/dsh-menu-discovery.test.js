@@ -7,8 +7,8 @@ import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 import { powershellPath } from '../lib/win.js'
 
-// Explicit opt-in: expands the running DSH Application menu, but NEVER invokes
-// Exit, starts the restart service, or accepts any confirmation.
+// 仅在显式启用时运行：展开正在运行的 DSH 应用菜单，但绝不调用
+// Exit、不启动重启服务，也不接受任何确认。
 test('actual DSH Views menu is recognized without invoking Exit', {
   skip: process.platform !== 'win32' || process.env.DSH_TEST_MENU_DISCOVERY !== '1',
 }, () => {

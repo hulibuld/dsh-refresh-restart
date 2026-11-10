@@ -1,7 +1,7 @@
-# TEST ONLY. A harmless managed WinForms window, NOT DSH. No native helpers,
-# P/Invoke, external tools or security configuration changes.
-# Windows PowerShell 5.1 is intentional: .NET Framework ContextMenu exposes a
-# standard #32768 menu; that legacy type is absent from .NET 10.
+# 仅供测试使用。这是无害的托管 WinForms 窗口，不是 DSH。不使用原生助手、
+# P/Invoke 或外部工具，也不修改安全配置。
+# 此处有意使用 Windows PowerShell 5.1：.NET Framework 的 ContextMenu 提供
+# 标准 #32768 菜单；.NET 10 中已没有这一旧类型。
 param([Parameter(Mandatory=$true)][string]$Receipt)
 $ErrorActionPreference = 'Stop'
 Add-Type -ReferencedAssemblies System.Windows.Forms,System.Drawing -TypeDefinition @'

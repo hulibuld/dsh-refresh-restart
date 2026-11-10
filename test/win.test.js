@@ -29,8 +29,8 @@ test('win-helper.ps1 存在且是纯 ASCII', () => {
 test('win-helper.ps1 关键动作都在', () => {
   const source = winHelperSource()
   for (const marker of [
-    'Find-NativeExitItem', // exact verified native menu item, not window close
-    'Get-Process', // executable-path identity check
+    'Find-NativeExitItem', // 精确验证过的原生菜单项，而非关闭窗口
+    'Get-Process', // 按可执行文件路径核验身份
     'InvokePattern',
     'Start-Process',
     'bootPath', // 报到文件：宿主据此确认交接成功
@@ -173,16 +173,16 @@ test('dispatch source has no shortcut/direct-spawn path and requires boot before
   assert.match(dispatch, /readStartupFailure\(plan\)/)
 })
 
-// Explicit opt-in only: launches a harmless writer, NEVER win-helper or dispatchWin.
-// It queries current Job membership, not survival across DSH shutdown.
+// 仅在显式启用时运行：启动无害写入器，绝不运行 win-helper 或 dispatchWin。
+// 只查询当前 Job 归属，不验证 DSH 关闭后是否存活。
 test('live existing-Explorer ShellExecute starts a harmless parameterized script and queries Job membership', {
   skip: process.platform !== 'win32' || process.env.DSH_TEST_EXPLORER_HANDOFF !== '1',
 }, async (t) => {
   const { mkdtempSync, writeFileSync, rmSync, readdirSync } = await import('node:fs')
   const { spawnSync } = await import('node:child_process')
   const { tmpdir } = await import('node:os')
-  // Read-only native query shared by the DSH-started test-side pwsh and writer.
-  // A null Job handle asks whether the current process belongs to ANY Job.
+  // DSH 启动的测试端 pwsh 和写入器共用这一只读原生查询。
+  // 空 Job 句柄用于查询当前进程是否属于任意 Job。
   const jobQuery = [
     "$ErrorActionPreference = 'Stop'",
     "Add-Type -TypeDefinition @'",
@@ -233,7 +233,7 @@ test('live existing-Explorer ShellExecute starts a harmless parameterized script
     assert.ok(!readdirSync(dir).some((name) => name.toLowerCase().endsWith('.lnk')))
     t.diagnostic(`ANY Job observations only: test-side pwsh=${parent.inJob}, Explorer writer=${receipt.inJob}; these may be different Jobs (including Store packaging Jobs). No specific-Job separation or DSH exit survival is established, and outside ALL Jobs is not a hand-off requirement.`)
   } finally {
-    // The writer may still be exiting with this directory as its working directory.
+    // 写入器可能仍在退出过程中，并将此目录作为工作目录。
     rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })
   }
 })

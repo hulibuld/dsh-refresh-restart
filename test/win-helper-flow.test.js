@@ -11,8 +11,8 @@ const marker = '\ntry {\n    Add-Type -AssemblyName UIAutomationClient'
 const boundary = source.indexOf(marker)
 assert.ok(boundary > 0, 'locate production helper main block before injecting test doubles')
 
-// Execute production control flow, replacing ALL target/process/UIA operations
-// with deterministic doubles. No actual application/menu/process is touched.
+// 执行生产控制流程，将所有目标、进程和 UIA 操作替换为
+// 确定性替身。不触碰任何真实应用、菜单或进程。
 function simulate(scenario) {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-helper-flow-'))
   try {
@@ -49,8 +49,8 @@ function Get-AppProcesses {
 }
 function Test-NativeDialog {
     if ($script:scenario -eq 'delayed-confirmation') {
-        # Spend longer than quitTimeoutMs in a modal, then cancel. The watcher
-        # must remain alive while it is present, not abandon a pending approval.
+        # 模态对话框停留超过 quitTimeoutMs 后再取消。对话框存在期间，
+        # 监视器必须保持运行，不能放弃尚待确认的操作。
         return $script:checks -le 5
     }
     return $false
@@ -62,7 +62,7 @@ function Start-Process {
     if ($script:scenario -eq 'launch-error') { throw 'synthetic launch failure' }
 }
 function Start-Sleep {
-    # Preserve short real waits for timeout cases only.
+    # 仅在超时场景中保留短暂的真实等待。
     if ($script:scenario -eq 'cancel' -or $script:scenario -eq 'delayed-confirmation') {
         [System.Threading.Thread]::Sleep(300)
     }
@@ -71,7 +71,7 @@ function Write-TestEffects {
     [IO.File]::WriteAllText('${effects.replaceAll("'", "''")}', (@{invocations=$script:invocations;launches=$script:launches;checks=$script:checks} | ConvertTo-Json -Compress))
 }
 `
-    // finally executes even when the production block calls exit.
+    // 即使生产代码块调用 exit，finally 仍会执行。
     const flow = source.slice(boundary).replace('} finally {', '} finally {\n    Write-TestEffects')
     const script = join(dir, 'simulation.ps1')
     writeFileSync(script, source.slice(0, boundary) + doubles + flow)
