@@ -146,7 +146,7 @@ macOS（本机）与 Windows / Linux 桌面版都已在真机点过按钮（Wind
 - **按钮没出现**：插件清单只在启动时读取。确认 profile `package.json` 的 `dsh.profile.bundles` 里有 `dsh-refresh-restart`，然后重启应用。
 - **窗口关了没回来**：先看 `%TEMP%\dsh-refresh-restart-<时间>.log`，里面会写 `relaunching through explorer`，成功是 `relaunched ok, new pid=…`，失败是 `relaunch failed: no new process appeared`（助手此时会在界面上报「重启失败」而不是继续转圈）。如果日志停在 `helper start`，说明助手被安全软件拦下了，把 DSH 加入白名单再试。macOS / Linux 的助手日志在系统临时目录，文件名 `dsh-refresh-restart-<时间>.log`（macOS 在 `$TMPDIR`，Windows 在 `%TEMP%`）。里面按顺序记了退出、等待、信号、重开每一步。0.1.1 之前的版本会因为 `ELECTRON_RUN_AS_NODE` 泄漏而重开出「没有窗口的空壳」，日志表现为 `launched=true` 但应用不出现——升级后日志会写 `应用已重新打开` 或 `进程已启动但没有窗口`。
 - **点重启后弹「关闭应用会中断当前正在进行的任务」**：点「取消」即可，本次重启会作废，应用不受影响；想重启就先等任务结束。
-- **提示「已取消重启」**：同上，说明应用没关成，一切照常。如果反复出现、且你确实想强杀，把配置里的 `forceKill` 改成 `true`。
+- **提示「已取消重启」**：说明应用没关成，一切照常。如果反复出现、且你确实想强杀，把配置里的 `forceKill` 改成 `true`。0.3.2 之前的版本还有另一种「假取消」：Chrome 的浏览器桥宿主（`~/.dsh/chrome-bridge/host/run.sh` 用 DSH 的二进制拉起，父进程是 Chrome）命令行同样带 `.app/Contents/`，DSH 退出后它还在，助手就会一直等到超时、判成「应用没有退出」——实际应用已经关了，只是没被重开。0.3.2 起助手只认「应用主进程 + 它的子孙」，并把这类借道启动的进程排除在外；日志里会写 `main=<pid>`，方便核对盯的是哪一个进程。
 - **提示「没找到应用位置」**：自动推断失败，把 `appPath` 配上绝对路径（macOS 填 `.app`，Windows 填 exe，Linux 填 AppImage）。
 
 ## Roadmap
