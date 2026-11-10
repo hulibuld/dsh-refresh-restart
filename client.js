@@ -78,6 +78,19 @@ window.__ModuleLoader__.load({
       'launch-failed': '应用已关闭，但没能自动重新打开，请手动启动',
     }
 
+    // Packaged Windows DSH exposes its native Application menu via this open
+    // shadow root, not a quit bridge. Never guess IPC channels or send keys.
+    function nativeApplicationButton() {
+      var host = document.querySelector('[data-windows-menu]')
+      var root = host && host.shadowRoot
+      var button = root && root.querySelector('button')
+      if (!button || typeof button.click !== 'function' || button.disabled) return null
+      if (button.getAttribute('role') !== 'menuitem' || button.getAttribute('aria-haspopup') !== 'menu') return null
+      var label = (button.textContent || '').trim()
+      if (label !== '应用' && label !== 'Application' && label !== 'App') return null
+      return button
+    }
+
     /* ------------------------------------------------------------------ *
      * 图标（16px，颜色跟随 currentColor）
      * ------------------------------------------------------------------ */
@@ -225,7 +238,7 @@ window.__ModuleLoader__.load({
       var primary = props.primary === true
       var disabled = props.disabled === true
       var background = primary
-        ? 'var(--dsw-alias-brand-primary)'
+        ? 'var(--dsw-alias-label-primary)'
         : hover && !disabled
           ? 'var(--dsw-alias-bg-layer-2)'
           : 'transparent'
@@ -243,7 +256,7 @@ window.__ModuleLoader__.load({
             borderRadius: 6,
             border: primary ? 'none' : '1px solid var(--dsw-alias-border-l1)',
             background: background,
-            color: primary ? '#ffffff' : 'var(--dsw-alias-label-primary)',
+            color: primary ? 'var(--dsw-alias-bg-base)' : 'var(--dsw-alias-label-primary)',
             cursor: disabled ? 'default' : 'pointer',
             opacity: disabled ? 0.55 : 1,
             font: 'inherit',
@@ -606,8 +619,9 @@ window.__ModuleLoader__.load({
 
       // 点完重启之后盯进度：助手写 phase，界面据此把「正在重启」收尾。
       // 超时就当没结果处理，绝不让按钮永远转圈。
-      function watchState() {
+      function watchState(requestId) {
         var startedAt = Date.now()
+        var openedMenu = false
         var misses = 0
         var mounted = { current: true }
         unmountRef.current = mounted
@@ -635,7 +649,21 @@ window.__ModuleLoader__.load({
               if (!mounted.current) return
               misses = 0
               var state = body && body.state ? body.state : null
+              if (requestId && (!state || state.requestId !== requestId)) {
+                finish('重启状态与当前请求不匹配，已停止自动操作，请手动检查应用')
+                return
+              }
               var phase = state && typeof state.phase === 'string' ? state.phase : 'idle'
+              if (phase === 'ready-for-menu' && !openedMenu) {
+                var button = nativeApplicationButton()
+                if (!button) {
+                  finish('找不到 DSH 原生应用菜单，本次未请求退出')
+                  return
+                }
+                openedMenu = true
+                button.click()
+              }
+              if (phase === 'awaiting-confirmation') startedAt = Date.now()
               if (phase === 'cancelled' || phase === 'quit-failed') {
                 finish(STATE_TEXT[phase] || '重启已取消')
                 return
@@ -681,6 +709,9 @@ window.__ModuleLoader__.load({
             if (status.canRestart === false) {
               throw new Error(typeof status.reason === 'string' && status.reason !== '' ? status.reason : ERROR_TEXT.unsupported)
             }
+            if (status.platform === 'win32' && !nativeApplicationButton()) {
+              throw new Error('当前桌面版本没有可识别的原生应用菜单，未请求退出')
+            }
             return fetch(ROUTE + '/restart', {
               method: 'POST',
               headers: {
@@ -706,7 +737,7 @@ window.__ModuleLoader__.load({
             // 助手接单了。但「接单」不等于「关掉了」：DSH 自己会弹
             // 「关闭应用会中断当前正在进行的任务」，用户可能点取消。
             // 所以接下来轮询助手写的进度，取消就把按钮松开、给一句人话。
-            watchState()
+            watchState(result.body.requestId)
           })
           .catch(function (failure) {
             setBusy(false)

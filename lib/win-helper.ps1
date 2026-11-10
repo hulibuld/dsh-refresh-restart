@@ -1,203 +1,183 @@
-# dsh-refresh-restart - Windows restart helper.
-#
-# Why a PowerShell helper instead of the Node one used on macOS/Linux:
-# the desktop app is started by Chromium, and its whole process tree lives in a
-# job object with kill-on-close. A child process spawned from inside that tree
-# dies together with the app, so it can never bring the app back. This script is
-# started by Explorer (outside the job), which is why it survives the shutdown it
-# causes itself.
-#
-# ASCII only on purpose: Windows PowerShell 5.1 decodes BOM-less UTF-8 script
-# files as ANSI, so non-ASCII text here would turn into syntax errors.
-#
-# Action: read payload JSON, ask the app to close, wait for it to really exit,
-# then relaunch it through the shell and verify a new process appeared.
-
-param(
-    [Parameter(Mandatory = $true)][string]$PayloadFile
-)
-
+# dsh-refresh-restart Windows watcher. PowerShell 7 by default; ASCII source.
+# Launched through the existing Explorer desktop, never through a temporary LNK.
+# The client opens DSH's Application menu after ready-for-menu. UI Automation
+# invokes only the exact native Exit item belonging to the verified app process.
+# DSH itself owns the task-cancellation confirmation and graceful shutdown.
+param([Parameter(Mandatory = $true)][string]$PayloadFile)
 $ErrorActionPreference = 'Stop'
-
+$utf8 = New-Object System.Text.UTF8Encoding($false)
 $payload = Get-Content -LiteralPath $PayloadFile -Raw | ConvertFrom-Json
 $exe = [string]$payload.exe
 $logPath = [string]$payload.logPath
 $statePath = [string]$payload.statePath
 $bootPath = [string]$payload.bootPath
-$quitTimeoutMs = [int]$payload.quitTimeoutMs
-if ($quitTimeoutMs -le 0) { $quitTimeoutMs = 20000 }
-$openDelayMs = [int]$payload.openDelayMs
-if ($openDelayMs -lt 0) { $openDelayMs = 800 }
-$forceKill = [bool]$payload.forceKill
-
-if ([string]::IsNullOrEmpty($exe)) {
-    # Without a target executable every path match below would succeed on
-    # processes whose Path is unreadable, and we would close the wrong things.
-    throw 'payload has no exe path'
+$requestId = [string]$payload.requestId
+$quitTimeoutMs = [Math]::Max(1000, [int]$payload.quitTimeoutMs)
+$openDelayMs = [Math]::Max(0, [int]$payload.openDelayMs)
+$appExited = $false
+if ([string]::IsNullOrWhiteSpace($exe) -or [string]::IsNullOrWhiteSpace($requestId)) {
+    throw 'payload must contain exe and requestId'
 }
-
-$utf8 = New-Object System.Text.UTF8Encoding($false)
-
-function Write-Log {
-    param([string]$Message)
-    try {
-        $line = (Get-Date).ToString('HH:mm:ss') + ' ' + $Message
-        [IO.File]::AppendAllText($logPath, $line + "`r`n", $utf8)
-    }
-    catch { }
+function Write-Log([string]$Message) {
+    try { [IO.File]::AppendAllText($logPath, ((Get-Date).ToString('HH:mm:ss') + ' ' + $Message + "`r`n"), $utf8) } catch {}
 }
-
-function Write-State {
-    param([string]$Phase, [string]$Detail)
-    try {
-        $doc = [ordered]@{
-            phase  = $Phase
-            detail = $Detail
-            at     = [int64]([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())
-        }
-        [IO.File]::WriteAllText($statePath, ($doc | ConvertTo-Json -Compress), $utf8)
-    }
-    catch { }
+function Write-State([string]$Phase, [string]$Detail = '') {
+    $doc = [ordered]@{ requestId = $requestId; phase = $Phase; detail = $Detail; at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() }
+    # Atomic replacement prevents the polling client from reading partial JSON.
+    $temp = $statePath + '.' + $PID + '.tmp'
+    [IO.File]::WriteAllText($temp, ($doc | ConvertTo-Json -Compress), $utf8)
+    Move-Item -LiteralPath $temp -Destination $statePath -Force
 }
-
-# Every process whose executable is exactly our app. Path matching is what makes
-# this reliable: the process name is whatever the vendor shipped, and localized
-# tasklist output is a trap.
 function Get-AppProcesses {
-    param([int]$ExcludePid = 0)
-    $found = New-Object System.Collections.ArrayList
-    foreach ($proc in (Get-Process -ErrorAction SilentlyContinue)) {
-        if ($null -eq $proc) { continue }
-        if ($ExcludePid -gt 0 -and $proc.Id -eq $ExcludePid) { continue }
-        $path = ''
-        try { $path = [string]$proc.Path } catch { $path = '' }
-        if ($path -ne '' -and $path -ieq $exe) { [void]$found.Add($proc) }
-    }
-    return , $found
+    return @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
+        try { $_.Path -ne '' -and $_.Path -ieq $exe } catch { $false }
+    })
 }
-
+function Resolve-AppMainProcess([int]$HostProcessId) {
+    $current = $HostProcessId
+    $seen = @{}
+    $main = $null
+    $sessionId = $null
+    $childStarted = [DateTime]::MaxValue
+    while ($current -gt 0) {
+        if ($seen.ContainsKey($current)) { throw 'DSH ancestry contains a PID cycle' }
+        $seen[$current] = $true
+        $process = Get-Process -Id $current -ErrorAction Stop
+        if ($process.Path -ine $exe) { break }
+        if ($null -eq $sessionId) { $sessionId = $process.SessionId }
+        if ($process.SessionId -ne $sessionId -or $process.StartTime -gt $childStarted) {
+            throw 'DSH ancestry session/start-time mismatch'
+        }
+        $record = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $current) -ErrorAction Stop
+        if ($null -eq $record -or [Math]::Abs((([DateTime]$record.CreationDate) - $process.StartTime).TotalSeconds) -gt 1) {
+            throw 'DSH ancestry process identity changed during discovery'
+        }
+        $main = $process
+        $childStarted = $process.StartTime
+        $current = [int]$record.ParentProcessId
+    }
+    if ($null -eq $main -or $main.MainWindowHandle -eq [IntPtr]::Zero) {
+        throw 'cannot verify the DSH main process from host ancestry'
+    }
+    return $main
+}
+function Get-ProcessWindows([int]$ProcessId) {
+    $condition = [System.Windows.Automation.PropertyCondition]::new(
+        [System.Windows.Automation.AutomationElement]::ProcessIdProperty, $ProcessId)
+    return [System.Windows.Automation.AutomationElement]::RootElement.FindAll(
+        [System.Windows.Automation.TreeScope]::Children, $condition)
+}
+function Find-NativeExitItem([int]$ProcessId) {
+    $windows = Get-ProcessWindows $ProcessId
+    $candidates = @()
+    $menuCondition = [System.Windows.Automation.PropertyCondition]::new(
+        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+        [System.Windows.Automation.ControlType]::Menu)
+    $itemCondition = [System.Windows.Automation.PropertyCondition]::new(
+        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+        [System.Windows.Automation.ControlType]::MenuItem)
+    foreach ($window in $windows) {
+        # Electron uses Chromium Views, NOT a Win32 #32768 popup/HMENU.
+        # These native classes and parent/child relationships were observed in
+        # the actual DSH menu. Do not match renderer content by label alone.
+        if ($window.Current.ProcessId -ne $ProcessId -or
+            $window.Current.ClassName -notmatch '^Chrome_WidgetWin_[0-9]+$') { continue }
+        foreach ($menu in $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $menuCondition)) {
+            if ($menu.Current.ClassName -cne 'SubmenuView' -or
+                $menu.Current.ProcessId -ne $ProcessId -or $menu.Current.IsOffscreen) { continue }
+            foreach ($item in $menu.FindAll([System.Windows.Automation.TreeScope]::Children, $itemCondition)) {
+                $info = $item.Current
+                $label = ($info.Name -split "`t")[0].Replace('&', '').Trim()
+                if ($info.ClassName -ceq 'MenuItemView' -and $info.ProcessId -eq $ProcessId -and
+                    $info.IsEnabled -and -not $info.IsOffscreen -and
+                    ($label -ceq 'Exit' -or $label -ceq ([string][char]0x9000 + [char]0x51FA))) {
+                    $pattern = $null
+                    if ($item.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) {
+                        $candidates += $pattern
+                    }
+                }
+            }
+        }
+    }
+    if ($candidates.Count -gt 1) { throw 'ambiguous native Exit menu item' }
+    if ($candidates.Count -eq 1) { return $candidates[0] }
+    return $null
+}
+function Test-NativeDialog([int]$ProcessId) {
+    foreach ($window in (Get-ProcessWindows $ProcessId)) {
+        if ($window.Current.ClassName -eq '#32770' -and -not $window.Current.IsOffscreen) { return $true }
+    }
+    return $false
+}
 try {
-    # Check in first: the side that started us waits for this file, so it learns
-    # the hand-off actually worked (and gets our pid for the status document).
-    try {
-        [IO.File]::WriteAllText($bootPath, ('{"pid":' + $PID + '}'), $utf8)
+    Add-Type -AssemblyName UIAutomationClient
+    Add-Type -AssemblyName UIAutomationTypes
+    $main = Resolve-AppMainProcess ([int]$payload.hostPid)
+    $mainId = $main.Id
+    Write-Log ('watcher pid=' + $PID + ' app main pid=' + $mainId)
+    Write-State 'ready-for-menu'
+    [IO.File]::WriteAllText($bootPath, ('{"pid":' + $PID + '}'), $utf8)
+
+    # This stage has no exit side effect until an exact, app-owned item is found.
+    $deadline = (Get-Date).AddSeconds(15)
+    $exitItem = $null
+    while ((Get-Date) -lt $deadline -and $null -eq $exitItem) {
+        if ($main.HasExited) { throw 'DSH exited before the native Exit request' }
+        $exitItem = Find-NativeExitItem $mainId
+        if ($null -eq $exitItem) { Start-Sleep -Milliseconds 100 }
     }
-    catch { }
+    if ($null -eq $exitItem) { throw 'native Exit menu item unavailable; no close or force-kill fallback' }
+    Write-State 'quitting'
+    $exitItem.Invoke()
+    Write-Log 'invoked DSH native Exit; DSH owns the confirmation dialog'
 
-    Write-Log ('helper start pid=' + $PID + ' exe=' + $exe)
-    Write-State 'starting' ''
-
-    Start-Sleep -Milliseconds 1000
-
-    # 1) polite shutdown: same as clicking the window's close button
-    $targets = Get-AppProcesses
-    $ids = @($targets | ForEach-Object { $_.Id })
-    Write-Log ('app processes: ' + ($ids -join ','))
-    foreach ($proc in $targets) {
-        try { $null = $proc.CloseMainWindow() }
-        catch { Write-Log ('CloseMainWindow failed for ' + $proc.Id + ': ' + $_.Exception.Message) }
-    }
-
-    Write-State 'quitting' ''
     $deadline = (Get-Date).AddMilliseconds($quitTimeoutMs)
-    while ((Get-Date) -lt $deadline) {
-        if ((Get-AppProcesses).Count -eq 0) { break }
+    while ((Get-AppProcesses).Count -gt 0) {
+        # Never time out while the user is still deciding in DSH's native dialog.
+        if (Test-NativeDialog $mainId) {
+            Write-State 'awaiting-confirmation'
+            $deadline = (Get-Date).AddMilliseconds($quitTimeoutMs)
+        } elseif ((Get-Date) -ge $deadline) {
+            Write-Log 'app still running after native quit; leaving it untouched'
+            Write-State 'cancelled' 'DSH did not exit; no process was killed or relaunched'
+            exit 0
+        }
         Start-Sleep -Milliseconds 300
     }
-
-    if ((Get-AppProcesses).Count -gt 0) {
-        if (-not $forceKill) {
-            # Most likely the user hit "cancel" in the app's own close prompt.
-            # Killing anyway is how you end up with two instances fighting over
-            # one port, so stop here.
-            Write-Log 'app did not exit, restart cancelled (forceKill is off)'
-            Write-State 'cancelled' 'app did not exit'
-            exit 0
-        }
-        Write-Log 'app did not exit, killing it (forceKill is on)'
-        Write-State 'force-kill' ''
-        foreach ($proc in (Get-AppProcesses)) {
-            try { $proc.Kill() } catch { Write-Log ('kill failed: ' + $_.Exception.Message) }
-        }
-        $killDeadline = (Get-Date).AddSeconds(10)
-        while ((Get-Date) -lt $killDeadline) {
-            if ((Get-AppProcesses).Count -eq 0) { break }
-            Start-Sleep -Milliseconds 300
-        }
-        if ((Get-AppProcesses).Count -gt 0) {
-            Write-Log 'still running after kill, giving up'
-            Write-State 'cancelled' 'app did not exit'
-            exit 0
-        }
-    }
-
-    Write-Log 'app exited'
+    $appExited = $true
+    Write-Log 'all matching DSH executable processes exited'
     Start-Sleep -Milliseconds $openDelayMs
-
-    # 2) relaunch. Explorer is outside the job object, so a shortcut started by it
-    # produces a process that outlives everything we just killed and lands on the
-    # interactive desktop where the user can see it.
-    $started = $null
-
-    function Start-ViaShell {
-        $shell = New-Object -ComObject WScript.Shell
-        $lnk = [IO.Path]::Combine([IO.Path]::GetTempPath(), ('dsh-refresh-restart-app-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.lnk'))
-        $shortcut = $shell.CreateShortcut($lnk)
-        $shortcut.TargetPath = $exe
-        $shortcut.WorkingDirectory = [IO.Path]::GetDirectoryName($exe)
-        $shortcut.WindowStyle = 1
-        $shortcut.Save()
-        # The temp path can contain spaces; explorer gets it quoted or it opens
-        # the wrong folder.
-        Start-Process -FilePath 'explorer.exe' -ArgumentList ('"' + $lnk + '"') | Out-Null
-        return $lnk
+    # Guard against a manual relaunch between the wait and our launch.
+    if ((Get-AppProcesses).Count -gt 0) {
+        Write-State 'relaunched' 'application already reopened'
+        exit 0
     }
-
-    function Start-Directly {
-        Start-Process -FilePath $exe -WorkingDirectory ([IO.Path]::GetDirectoryName($exe)) | Out-Null
-    }
-
-    function Wait-NewApp {
-        param([int]$TimeoutMs, [datetime]$Since)
-        $limit = (Get-Date).AddMilliseconds($TimeoutMs)
-        while ((Get-Date) -lt $limit) {
-            foreach ($proc in (Get-AppProcesses)) {
-                $start = $null
-                try { $start = $proc.StartTime } catch { $start = $null }
-                if ($null -ne $start -and $start -gt $Since) { return $proc }
-            }
-            Start-Sleep -Milliseconds 300
-        }
-        return $null
-    }
-
     $since = Get-Date
-    Write-Log 'relaunching through explorer'
-    try { $null = Start-ViaShell } catch { Write-Log ('explorer route failed: ' + $_.Exception.Message) }
-    $started = Wait-NewApp -TimeoutMs 25000 -Since $since
-
-    if ($null -eq $started) {
-        Write-Log 'no new process yet, retrying with a direct Start-Process'
-        $since = Get-Date
-        try { Start-Directly } catch { Write-Log ('Start-Process failed: ' + $_.Exception.Message) }
-        $started = Wait-NewApp -TimeoutMs 15000 -Since $since
+    Write-State 'launching'
+    # Launch from the Explorer-handed-off watcher, not the terminating Host.
+    # Actual DSH shutdown survival still needs end-to-end verification.
+    # Do not launch twice merely because startup is slow.
+    Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
+    Remove-Item Env:ELECTRON_NO_ASAR -ErrorAction SilentlyContinue
+    Start-Process -FilePath $exe -WorkingDirectory ([IO.Path]::GetDirectoryName($exe)) | Out-Null
+    $deadline = (Get-Date).AddSeconds(60)
+    while ((Get-Date) -lt $deadline) {
+        foreach ($process in (Get-AppProcesses)) {
+            if ($process.StartTime -ge $since) {
+                Write-State 'relaunched' ('new process pid=' + $process.Id + '; GUI readiness not verified')
+                Write-Log ('new process observed pid=' + $process.Id)
+                exit 0
+            }
+        }
+        Start-Sleep -Milliseconds 300
     }
-
-    if ($null -ne $started) {
-        Write-Log ('relaunched ok, new pid=' + $started.Id)
-        Write-State 'relaunched' ''
-    }
-    else {
-        Write-Log 'relaunch failed: no new process appeared'
-        Write-State 'launch-failed' ''
-    }
-
-    try { Remove-Item -LiteralPath $PayloadFile -Force -ErrorAction SilentlyContinue } catch { }
-    exit 0
-}
-catch {
+    throw 'no new DSH process observed; launch was not retried'
+} catch {
     $message = $_.Exception.Message
     Write-Log ('helper error: ' + $message)
-    Write-State 'launch-failed' $message
+    if ($appExited) { Write-State 'launch-failed' $message }
+    else { Write-State 'quit-failed' $message }
     exit 1
+} finally {
+    Remove-Item -LiteralPath $PayloadFile -Force -ErrorAction SilentlyContinue
 }
