@@ -169,7 +169,8 @@ test('dispatch source has no shortcut/direct-spawn path and requires boot before
   const dispatch = source.slice(source.indexOf('export function dispatchWin'))
   assert.ok(dispatch.indexOf('if (boot === null)') < dispatch.indexOf('return { ok: true'))
   assert.match(dispatch, /Boot receipt already exists/)
-  assert.match(dispatch, /no direct fallback was attempted/)
+  assert.match(dispatch, /未使用直接启动回退/)
+  assert.match(dispatch, /readStartupFailure\(plan\)/)
 })
 
 // Explicit opt-in only: launches a harmless writer, NEVER win-helper or dispatchWin.

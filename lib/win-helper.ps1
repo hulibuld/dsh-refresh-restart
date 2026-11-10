@@ -53,6 +53,10 @@ function Resolve-AppMainProcess([int]$HostProcessId) {
             throw 'DSH ancestry process identity changed during discovery'
         }
         $main = $process
+        # A verified app-owned window marks the main process, not its launcher.
+        # After relaunch, its parent is our short-lived watcher and may be gone.
+        # Never follow that stale parent PID (which may also have been reused).
+        if ($main.MainWindowHandle -ne [IntPtr]::Zero) { break }
         $childStarted = $process.StartTime
         $current = [int]$record.ParentProcessId
     }
