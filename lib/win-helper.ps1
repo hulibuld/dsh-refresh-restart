@@ -89,20 +89,26 @@ try {
 
     Start-Sleep -Milliseconds 1000
 
-    # 1) polite shutdown: same as clicking the window's close button
     $targets = Get-AppProcesses
     $ids = @($targets | ForEach-Object { $_.Id })
     Write-Log ('app processes: ' + ($ids -join ','))
-    foreach ($proc in $targets) {
-        try { $null = $proc.CloseMainWindow() }
-        catch { Write-Log ('CloseMainWindow failed for ' + $proc.Id + ': ' + $_.Exception.Message) }
-    }
 
-    Write-State 'quitting' ''
-    $deadline = (Get-Date).AddMilliseconds($quitTimeoutMs)
-    while ((Get-Date) -lt $deadline) {
-        if ((Get-AppProcesses).Count -eq 0) { break }
-        Start-Sleep -Milliseconds 300
+    # forceKill means the caller already gave up on a graceful exit. DSH's close
+    # handler only hides the window, so CloseMainWindow never ends the process and
+    # this wait always burns the whole quitTimeoutMs before the kill below.
+    if (-not $forceKill) {
+        # 1) polite shutdown: same as clicking the window's close button
+        foreach ($proc in $targets) {
+            try { $null = $proc.CloseMainWindow() }
+            catch { Write-Log ('CloseMainWindow failed for ' + $proc.Id + ': ' + $_.Exception.Message) }
+        }
+
+        Write-State 'quitting' ''
+        $deadline = (Get-Date).AddMilliseconds($quitTimeoutMs)
+        while ((Get-Date) -lt $deadline) {
+            if ((Get-AppProcesses).Count -eq 0) { break }
+            Start-Sleep -Milliseconds 300
+        }
     }
 
     if ((Get-AppProcesses).Count -gt 0) {
