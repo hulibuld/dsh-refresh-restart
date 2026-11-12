@@ -129,7 +129,8 @@ test('waitBoot 读得到 pid，超时返回 null', async () => {
 })
 
 test('powershellPath prefers installed pwsh7; 5.1 requires explicit compatibility opt-in', () => {
-  const env = { ProgramFiles: 'D:\\Programs', SystemRoot: 'D:\\Win', PATH: 'D:\\custom' }
+  // 使用当前平台的路径格式，避免 Windows 盘符冒号在 Unix 上被当作 PATH 分隔符。
+  const env = { ProgramFiles: join('mock', 'Programs'), SystemRoot: join('mock', 'Win'), PATH: join('mock', 'custom') }
   const preferred = join(env.ProgramFiles, 'PowerShell', '7', 'pwsh.exe')
   const fromPath = join(env.PATH, 'pwsh.exe')
   const legacy = join(env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
