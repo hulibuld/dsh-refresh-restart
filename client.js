@@ -792,7 +792,7 @@ window.__ModuleLoader__.load({
                 h('div', { style: { color: 'var(--dsw-alias-label-secondary)', marginBottom: 10 } }, TEXT.confirmBody),
                 h(
                   'div',
-                  { style: { color: 'var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary))', fontSize: 11, marginBottom: 10 } },
+                  { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 11, marginBottom: 10 } },
                   TEXT.confirmHint,
                 ),
                 busy

@@ -6,7 +6,8 @@ import { join } from 'node:path'
 import test from 'node:test'
 import { powershellPath } from '../lib/win.js'
 
-const source = readFileSync(new URL('../lib/win-helper.ps1', import.meta.url), 'utf8')
+// Git 在 Windows 上可能检出 CRLF，先归一化换行再定位生产代码块。
+const source = readFileSync(new URL('../lib/win-helper.ps1', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
 const marker = '\ntry {\n    Add-Type -AssemblyName UIAutomationClient'
 const boundary = source.indexOf(marker)
 assert.ok(boundary > 0, 'locate production helper main block before injecting test doubles')
