@@ -1,5 +1,5 @@
 /**
- * dsh-refresh-restart — client half.
+ * dsh-refresh-restart 的客户端部分。
  *
  * 手写浏览器模块（没有构建步骤）：React 来自页面自己的模块表，插件只注册一个
  * `shell.overlay` 槽组件。按钮怎么摆分两种情况：
@@ -225,7 +225,7 @@ window.__ModuleLoader__.load({
       var primary = props.primary === true
       var disabled = props.disabled === true
       var background = primary
-        ? 'var(--dsw-alias-brand-primary)'
+        ? 'var(--dsw-alias-label-primary)'
         : hover && !disabled
           ? 'var(--dsw-alias-bg-layer-2)'
           : 'transparent'
@@ -243,7 +243,7 @@ window.__ModuleLoader__.load({
             borderRadius: 6,
             border: primary ? 'none' : '1px solid var(--dsw-alias-border-l1)',
             background: background,
-            color: primary ? '#ffffff' : 'var(--dsw-alias-label-primary)',
+            color: primary ? 'var(--dsw-alias-bg-base)' : 'var(--dsw-alias-label-primary)',
             cursor: disabled ? 'default' : 'pointer',
             opacity: disabled ? 0.55 : 1,
             font: 'inherit',
