@@ -77,3 +77,12 @@ for (const disabled of [false, true]) {
     assert.equal(render().props.style.background, 'transparent')
   })
 }
+
+test('确认框提示文字用次要文字色，不用低对比度的三级色', () => {
+  // 浅色主题下三级文字色（#81858c）放在白色弹层上只有约 3.6:1，
+  // 11px 小字达不到 4.5:1；次要文字色（#61666b）约 5.4:1。
+  assert.ok(
+    !source.includes('--dsw-alias-label-tertiary'),
+    '11px 提示文字不应使用 --dsw-alias-label-tertiary（浅色主题下对比度不足）',
+  )
+})
